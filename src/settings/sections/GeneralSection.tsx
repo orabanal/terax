@@ -257,15 +257,9 @@ export function GeneralSection() {
         </SettingRow>
         <SettingRow
           title="Font family"
-          description='Nerd Font name for icons (e.g. "CaskaydiaCove Nerd Font Mono"). Leave blank to auto-detect.'
+          description='Nerd Font name for icons (e.g. "MesloLGS NF"). Leave blank to auto-detect.'
         >
-          <input
-            type="text"
-            value={terminalFontFamily}
-            placeholder="Auto-detect"
-            onChange={(e) => void setTerminalFontFamily(e.target.value)}
-            className="h-8 w-48 rounded-md border border-border bg-background px-2.5 text-[12px] outline-none focus:border-foreground/40"
-          />
+          <FontFamilyInput value={terminalFontFamily} />
         </SettingRow>
         <SettingRow
           title="Letter spacing"
@@ -367,6 +361,30 @@ export function GeneralSection() {
         </div>
       </div>
     </div>
+  );
+}
+
+function FontFamilyInput({ value }: { value: string }) {
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  const commit = () => void setTerminalFontFamily(draft);
+
+  return (
+    <input
+      type="text"
+      value={draft}
+      placeholder="Auto-detect"
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+      }}
+      className="h-8 w-48 rounded-md border border-border bg-background px-2.5 text-[12px] outline-none focus:border-foreground/40"
+    />
   );
 }
 

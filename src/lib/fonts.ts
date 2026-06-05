@@ -17,20 +17,27 @@ const NERD_FONT_CANDIDATES = [
 ];
 
 const FALLBACK_CHAIN = '"JetBrains Mono", SFMono-Regular, Menlo, monospace';
+export const MONO_FALLBACK_CHAIN = FALLBACK_CHAIN;
 
 let detected: string | null = null;
 let monoReady: Promise<void> | null = null;
 
-export function ensureMonoFontsLoaded(): Promise<void> {
-  if (monoReady) return monoReady;
+export function ensureMonoFontsLoaded(userFont?: string): Promise<void> {
   if (typeof document === "undefined" || !document.fonts?.load) {
     monoReady = Promise.resolve();
     return monoReady;
   }
-  monoReady = Promise.allSettled([
+  const loads: Promise<FontFace[]>[] = [
     document.fonts.load('400 14px "JetBrains Mono"'),
     document.fonts.load('700 14px "JetBrains Mono"'),
-  ]).then(() => undefined);
+  ];
+  if (userFont) {
+    loads.push(document.fonts.load(`400 14px "${userFont}"`));
+    loads.push(document.fonts.load(`700 14px "${userFont}"`));
+  }
+  if (!monoReady || userFont) {
+    monoReady = Promise.allSettled(loads).then(() => undefined);
+  }
   return monoReady;
 }
 

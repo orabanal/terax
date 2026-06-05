@@ -209,7 +209,8 @@ function ensureSession(
   sessions.set(leafId, session);
 
   session.ready = (async () => {
-    await ensureMonoFontsLoaded();
+    const userFont = usePreferencesStore.getState().terminalFontFamily || undefined;
+    await ensureMonoFontsLoaded(userFont);
     await document.fonts.ready;
   })();
 

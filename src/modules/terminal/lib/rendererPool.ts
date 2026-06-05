@@ -1,4 +1,5 @@
-import { detectMonoFontFamily } from "@/lib/fonts";
+import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
+import { detectMonoFontFamily, MONO_FALLBACK_CHAIN } from "@/lib/fonts";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { buildTerminalTheme } from "@/styles/terminalTheme";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -155,12 +156,30 @@ function bgActive(
   return prefs.backgroundKind === "image" && !!prefs.backgroundImageId;
 }
 
+function resolveWeightBold(fontFamily: string, fontSize: number): "normal" | "bold" {
+  if (typeof document === "undefined" || !document.fonts?.check) return "bold";
+  const primary = fontFamily.match(/^(?:"[^"]*"|'[^']*'|[^,])+/)?.[0]?.trim() ?? fontFamily;
+  return document.fonts.check(`bold ${fontSize}px ${primary}`) ? "bold" : "normal";
+}
+
+function resolveFontFamily(family: string): string {
+  if (!family) return detectMonoFontFamily();
+  return `"${family}", ${MONO_FALLBACK_CHAIN}`;
+}
+
 function termOptions() {
   const prefs = usePreferencesStore.getState();
+  const fontFamily = resolveFontFamily(prefs.terminalFontFamily);
+  const fontSize = Math.max(4, Math.round(prefs.terminalFontSize * prefs.zoomLevel));
   return {
-    fontFamily: prefs.terminalFontFamily || detectMonoFontFamily(),
+    fontFamily,
+    fontSize,
+    fontWeight: 400 as const,
+    fontWeightBold: resolveWeightBold(fontFamily, fontSize),
     letterSpacing: prefs.terminalLetterSpacing,
-    fontSize: Math.max(4, Math.round(prefs.terminalFontSize * prefs.zoomLevel)),
+    allowTransparency: false,
+    customGlyphs: true,
+    rescaleOverlappingGlyphs: true,
     theme: buildTerminalTheme(),
     cursorBlink: false,
     cursorStyle: "bar" as const,
@@ -191,11 +210,28 @@ function createSlot(): Slot {
     new WebLinksAddon((_e, uri) => openUrl(uri).catch(console.error)),
   );
 
+  // Accurate character-width calculation for Nerd Font glyphs, CJK, and emoji.
+  // Without this, xterm uses Unicode 6 internals and measures Nerd Font icons as
+  // width-1 while the font renders them as width-2, causing the spaced-out look.
+  const unicodeGraphemes = new UnicodeGraphemesAddon();
+  term.loadAddon(unicodeGraphemes);
+  term.unicode.activeVersion = "15-graphemes";
+
   const host = document.createElement("div");
   host.style.cssText = "width:100%;height:100%;";
   host.setAttribute("data-terax-slot", String(slots.length));
   getRecycler().appendChild(host);
   term.open(host);
+
+  // xterm.js WebGL renderer bug: glyphs rasterized in the constructor look
+  // different from dynamically-set ones. A fontWeight round-trip after the
+  // first paint forces the atlas to re-rasterize and normalizes rendering.
+  setTimeout(() => {
+    const w = term.options.fontWeight;
+    if (w === "normal" || w === 400) return;
+    term.options.fontWeight = "normal";
+    term.options.fontWeight = w;
+  }, 200);
 
   const slot: Slot = {
     id: slots.length,
@@ -798,18 +834,30 @@ export function applyLetterSpacing(spacing: number): void {
 }
 
 export function applyFontFamily(family: string): void {
-  const resolved = family || detectMonoFontFamily();
-  for (const slot of slots) {
-    if (slot.term.options.fontFamily === resolved) continue;
-    slot.term.options.fontFamily = resolved;
-    slot.fitAddon.fit();
-    if (slot.currentLeafId !== null) {
-      slot.lastCols = slot.term.cols;
-      slot.lastRows = slot.term.rows;
-      const bridge = adapter?.resolveLeaf(slot.currentLeafId);
-      bridge?.resizePty(slot.term.cols, slot.term.rows);
+  const resolved = resolveFontFamily(family);
+  const primary = resolved.match(/^(?:"[^"]*"|'[^']*'|[^,])+/)?.[0]?.trim() ?? resolved;
+  const fontSize = usePreferencesStore.getState().terminalFontSize;
+  // Wait for the font to load before applying so xterm measures cells with the
+  // correct glyph metrics. Without this, cells measured before the font loads
+  // are sized by the fallback font, producing wide gaps when the real font renders.
+  Promise.allSettled([
+    document.fonts.load(`400 ${fontSize}px ${primary}`),
+    document.fonts.load(`700 ${fontSize}px ${primary}`),
+    document.fonts.ready,
+  ]).then(() => {
+    for (const slot of slots) {
+      // Round-trip forces xterm to re-measure cell width with the loaded font.
+      slot.term.options.fontFamily = "";
+      slot.term.options.fontFamily = resolved;
+      slot.fitAddon.fit();
+      if (slot.currentLeafId !== null) {
+        slot.lastCols = slot.term.cols;
+        slot.lastRows = slot.term.rows;
+        const bridge = adapter?.resolveLeaf(slot.currentLeafId);
+        bridge?.resizePty(slot.term.cols, slot.term.rows);
+      }
     }
-  }
+  });
 }
 
 export function applyScrollback(value: number): void {

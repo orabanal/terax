@@ -108,6 +108,7 @@ export function useSidebarPanel(
   }, []);
 
   useEffect(() => {
+    sidebarRef.current?.collapse();
     return () => {
       if (sidebarWidthWriteTimerRef.current) {
         window.clearTimeout(sidebarWidthWriteTimerRef.current);

@@ -225,6 +225,9 @@ html[data-chrome="borderless"] #settings-root {
 .xterm.focus {
   outline: none !important;
 }
+.xterm canvas {
+  -webkit-font-smoothing: antialiased;
+}
 
 .cm-editor,
 .cm-scroller {
