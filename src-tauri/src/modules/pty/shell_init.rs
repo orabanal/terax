@@ -63,6 +63,19 @@ pub fn build_command(
     }
 }
 
+/// Build a raw command bypassing shell init scripts. Used for SSH and other
+/// direct process launches where the user controls the full argv.
+pub fn build_command_override(argv: Vec<String>, cwd: Option<String>) -> Result<CommandBuilder, String> {
+    let mut parts = argv.into_iter();
+    let program = parts.next().ok_or_else(|| "empty command".to_string())?;
+    let mut cmd = CommandBuilder::new(&program);
+    for arg in parts {
+        cmd.arg(arg);
+    }
+    apply_common(&mut cmd, cwd, false);
+    Ok(cmd)
+}
+
 fn ensure_utf8_locale(cmd: &mut CommandBuilder) {
     let is_utf8 = |v: &str| {
         let up = v.to_ascii_uppercase();

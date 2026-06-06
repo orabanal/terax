@@ -191,6 +191,12 @@ html[data-chrome="borderless"] #settings-root {
   background: var(--background);
 }
 
+@keyframes ssh-progress {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(100%); }
+  100% { transform: translateX(300%); }
+}
+
 /*
  * xterm.js overrides — kept outside @layer so they win against the addon's
  * own stylesheet (which is not in any layer and would otherwise override).

@@ -43,9 +43,12 @@ reqwest = { version = "0.12", default-features = false, features = [
 ] }
 bytes = "1"
 futures-util = "0.3"
-tokio = { version = "1", default-features = false, features = ["rt"] }
+tokio = { version = "1", default-features = false, features = ["rt", "net", "io-util", "sync", "macros", "time"] }
 tempfile = "3"
 notify = "8.2.0"
+russh = { version = "0.61", features = ["ring"] }
+russh-keys = "0.45"
+shellexpand = "3"
 
 [dev-dependencies]
 proptest = "1"

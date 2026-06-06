@@ -78,6 +78,8 @@ import {
 import { ThemeProvider, useThemeFileEditing } from "@/modules/theme";
 import { UpdaterDialog } from "@/modules/updater";
 import { useWorkspaceEnvStore } from "@/modules/workspace";
+import type { SshHost } from "@/modules/ssh/store";
+import { getSshPassword } from "@/modules/ssh/store";
 import type { SearchAddon } from "@xterm/addon-search";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CloseDialogs } from "./components/CloseDialogs";
@@ -94,6 +96,7 @@ export default function App() {
     newBlockTab,
     newAgentTab,
     newPrivateTab,
+    newSshTab,
     openFileTab,
     pinTab,
     newPreviewTab,
@@ -360,6 +363,22 @@ export default function App() {
   const openNewBlockTab = useCallback(() => {
     newBlockTab(inheritedCwdForNewTab());
   }, [newBlockTab, inheritedCwdForNewTab]);
+
+  const openNewSshTab = useCallback(
+    async (host: SshHost) => {
+      if (host.authType === "password") {
+        const saved = await getSshPassword(host.id);
+        if (saved) {
+          newSshTab({ ...host, password: saved });
+        } else {
+          openSettingsWindow("ssh");
+        }
+      } else {
+        newSshTab(host);
+      }
+    },
+    [newSshTab],
+  );
 
   const sendCd = useCallback(
     (path: string) => {
@@ -791,6 +810,7 @@ export default function App() {
               onNewPreview={() => openPreviewTab("")}
               onNewEditor={() => setNewEditorOpen(true)}
               onNewGitGraph={openGitGraphFromContext}
+              onNewSsh={openNewSshTab}
               onClose={handleClose}
               onPin={pinTab}
               onRename={handleRenameTab}

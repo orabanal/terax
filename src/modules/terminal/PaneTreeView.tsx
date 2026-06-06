@@ -4,6 +4,8 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
+import { cn } from "@/lib/utils";
+import type { SshHost } from "@/modules/ssh/store";
 import type { SearchAddon } from "@xterm/addon-search";
 import { TerminalPane, type TerminalPaneHandle } from "./TerminalPane";
 import { useTerminalDropStore } from "./lib/dropStore";
@@ -21,8 +23,13 @@ type Props = {
   tabVisible: boolean;
   activeLeafId: number;
   blocks: boolean;
+  command?: string[];
+  sshHost?: SshHost & { password?: string };
   onFocusLeaf: (leafId: number) => void;
   getBundle: (leafId: number) => LeafBundle;
+  hoveredLeafId: number | null;
+  onHoverLeaf: (leafId: number | null) => void;
+  multiPane: boolean;
 };
 
 export function PaneTreeView({
@@ -30,24 +37,39 @@ export function PaneTreeView({
   tabVisible,
   activeLeafId,
   blocks,
+  command,
+  sshHost,
   onFocusLeaf,
   getBundle,
+  hoveredLeafId,
+  onHoverLeaf,
+  multiPane,
 }: Props) {
   if (node.kind === "leaf") {
     const focused = node.id === activeLeafId;
     const b = getBundle(node.id);
+    const isHovered = hoveredLeafId === node.id;
+    const dimmed = multiPane && hoveredLeafId !== null && !isHovered;
+    const showBorder = multiPane && isHovered;
     return (
       <div
         onMouseDownCapture={() => {
           if (!focused) onFocusLeaf(node.id);
         }}
-        // Catches focus from Tab, programmatic focus, or any path that
-        // skips mousedown — keeps activeLeafId in sync with DOM focus.
         onFocus={() => {
           if (!focused) onFocusLeaf(node.id);
         }}
+        onMouseEnter={() => {
+          onHoverLeaf(node.id);
+          if (!focused) onFocusLeaf(node.id);
+        }}
+        onMouseLeave={() => onHoverLeaf(null)}
         data-pane-leaf={node.id}
-        className="relative h-full w-full"
+        className={cn(
+          "relative h-full w-full transition-[filter] duration-150",
+          showBorder && "ring-1 ring-inset ring-border/60",
+        )}
+        style={dimmed ? { filter: "brightness(0.7)" } : undefined}
       >
         <TerminalPane
           leafId={node.id}
@@ -55,6 +77,8 @@ export function PaneTreeView({
           focused={focused}
           initialCwd={node.cwd}
           blocks={blocks}
+          command={command}
+          sshHost={sshHost}
           ref={b.setRef}
           onSearchReady={(_id, addon) => b.onSearch(addon)}
           onCwd={(_id, cwd) => b.onCwd(cwd)}
@@ -78,8 +102,13 @@ export function PaneTreeView({
               tabVisible={tabVisible}
               activeLeafId={activeLeafId}
               blocks={blocks}
+              command={command}
+              sshHost={sshHost}
               onFocusLeaf={onFocusLeaf}
               getBundle={getBundle}
+              hoveredLeafId={hoveredLeafId}
+              onHoverLeaf={onHoverLeaf}
+              multiPane={true}
             />
           </ResizablePanel>
         </Fragment>

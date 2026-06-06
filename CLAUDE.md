@@ -54,7 +54,8 @@ Tabs are a tagged union (`kind`: `terminal` | `editor` | `preview` | `markdown` 
 
 Each module is self-contained, exports via `index.ts`, and owns its hooks under `lib/`.
 
-- **terminal/** — `TerminalStack` keeps one mounted xterm per tab via `useTerminalSession` + `pty-bridge`. `osc-handlers.ts` parses OSC 7 (cwd) and OSC 133 (prompt boundaries / exit codes). xterm color palette driven by `modules/theme`.
+- **terminal/** — `TerminalStack` keeps one mounted xterm per tab via `useTerminalSession` + `pty-bridge`. `osc-handlers.ts` parses OSC 7 (cwd) and OSC 133 (prompt boundaries / exit codes). xterm color palette driven by `modules/theme`. Split panes managed by `PaneTreeView` — hover state lives in `TerminalStack` (`hoveredByTab` keyed by tab id) and passes down as flat props; dimming via `filter: brightness(0.7)`, border via `ring-1 ring-inset ring-border/60`.
+- **ssh/** — russh 0.61 client. `ssh_open` / `ssh_write` / `ssh_resize` / `ssh_close` Tauri commands in `src-tauri/src/modules/ssh/mod.rs`. `nodelay: true` on the russh Config disables Nagle's algorithm. Frontend: `openSshPty()` in `pty-bridge.ts`, `SshConnectingModal` (one per leaf, tracks status via `sshStatusListeners` map, auto-focuses terminal on connect). SSH hosts stored in `terax-ssh-hosts.json` via `LazyStore`.
 - **editor/** — CodeMirror 6 stack. `extensions.ts` configures language modes, vim mode, and prebuilt themes.
 - **ai/** — BYOK providers via `@ai-sdk/*`. Agent in `lib/agent.ts` (`Experimental_Agent`). Sessions persisted via `tauri-plugin-store` at `terax-ai-sessions.json`. Tools in `tools/tools.ts` — destructive tools (`write_file`, `run_command`, etc.) set `needsApproval: true`. Security deny-list in `lib/security.ts` applies to both read and write paths.
 - **theme/** — custom theme engine. `ThemeProvider` + `applyTheme` write CSS variables. No `next-themes`.

@@ -12,6 +12,7 @@ import {
   type SplitDir,
 } from "@/modules/terminal/lib/panes";
 import { disposeSession } from "@/modules/terminal/lib/useTerminalSession";
+import { type SshHost } from "@/modules/ssh/store";
 
 // Matches the renderer slot pool size — over this we'd evict an active leaf.
 export const MAX_PANES_PER_TAB = 4;
@@ -28,6 +29,12 @@ export type TerminalTab = {
   private?: boolean;
   /** User-set label that overrides the cwd-derived name. Survives cd. */
   customTitle?: string;
+  /** Set when this tab was opened as an SSH connection. */
+  sshHostId?: string;
+  /** Full SSH host config (with resolved password) — baked at creation, cleared on close. */
+  sshHost?: SshHost & { password?: string };
+  /** Baked-in command override (e.g. ssh argv). Immutable for this session. */
+  command?: string[];
 };
 
 export type EditorTab = {
@@ -242,6 +249,25 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     ]);
     setActiveId(tabId);
     return tabId;
+  }, []);
+
+  const newSshTab = useCallback((host: SshHost & { password?: string }) => {
+    const tabId = nextIdRef.current++;
+    const leafId = nextIdRef.current++;
+    setTabs((t) => [
+      ...t,
+      {
+        id: tabId,
+        kind: "terminal",
+        title: host.name,
+        paneTree: { kind: "leaf", id: leafId },
+        activeLeafId: leafId,
+        sshHostId: host.id,
+        sshHost: host,
+      },
+    ]);
+    setActiveId(tabId);
+    return { tabId, leafId };
   }, []);
 
   /**
@@ -836,6 +862,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     newBlockTab,
     newAgentTab,
     newPrivateTab,
+    newSshTab,
     openFileTab,
     pinTab,
     newPreviewTab,

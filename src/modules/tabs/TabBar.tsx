@@ -10,12 +10,14 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
+import { useSshHostsStore, type SshHost } from "@/modules/ssh/store";
 import {
   Cancel01Icon,
   Clock01Icon,
@@ -26,6 +28,7 @@ import {
   IncognitoIcon,
   PencilEdit02Icon,
   PlusSignIcon,
+  ServerStack01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useRef, useState } from "react";
@@ -42,6 +45,7 @@ type Props = {
   onNewPreview: () => void;
   onNewEditor: () => void;
   onNewGitGraph: () => void;
+  onNewSsh: (host: SshHost) => void;
   onClose: (id: number) => void;
   /** Pin (promote) a preview tab to persistent on double-click. */
   onPin: (id: number) => void;
@@ -60,6 +64,7 @@ export function TabBar({
   onNewPreview,
   onNewEditor,
   onNewGitGraph,
+  onNewSsh,
   onClose,
   onPin,
   onRename,
@@ -67,6 +72,28 @@ export function TabBar({
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const sshHosts = useSshHostsStore((s) => s.hosts);
+  const sshHydrated = useSshHostsStore((s) => s.hydrated);
+  const sshInit = useSshHostsStore((s) => s.init);
+  const sshReload = useSshHostsStore((s) => s.reload);
+
+  useEffect(() => {
+    sshInit();
+  }, [sshInit]);
+
+  // Settings runs in a separate Tauri window — its Zustand store is a different
+  // JS context. Watch the underlying JSON file so changes made in Settings are
+  // picked up here without a restart.
+  useEffect(() => {
+    let cancelled = false;
+    import("@tauri-apps/plugin-store").then(({ LazyStore }) => {
+      const s = new LazyStore("terax-ssh-hosts.json");
+      s.onChange(() => {
+        if (!cancelled) void sshReload();
+      });
+    });
+    return () => { cancelled = true; };
+  }, [sshReload]);
 
   // Horizontal wheel scroll without holding shift.
   useEffect(() => {
@@ -300,6 +327,22 @@ export function TabBar({
               <HugeiconsIcon icon={GitBranchIcon} size={14} strokeWidth={1.75} />
               <span className="flex-1">Git Graph</span>
             </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {sshHydrated && sshHosts.length === 0 && (
+              <DropdownMenuItem disabled>
+                <HugeiconsIcon icon={ServerStack01Icon} size={14} strokeWidth={1.75} />
+                <span className="flex-1 text-muted-foreground">No SSH hosts configured</span>
+              </DropdownMenuItem>
+            )}
+            {sshHosts.map((host) => (
+              <DropdownMenuItem key={host.id} onSelect={() => onNewSsh(host)}>
+                <HugeiconsIcon icon={ServerStack01Icon} size={14} strokeWidth={1.75} />
+                <span className="flex-1">{host.name}</span>
+                <span className="text-xs text-muted-foreground">
+                  {host.username}@{host.host}
+                </span>
+              </DropdownMenuItem>
+            ))}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -336,6 +379,16 @@ function TabIcon({ tab }: { tab: Tab }) {
     return (
       <HugeiconsIcon
         icon={IncognitoIcon}
+        size={14}
+        strokeWidth={2}
+        className="shrink-0"
+      />
+    );
+  }
+  if (tab.kind === "terminal" && tab.sshHostId) {
+    return (
+      <HugeiconsIcon
+        icon={ServerStack01Icon}
         size={14}
         strokeWidth={2}
         className="shrink-0"

@@ -13,6 +13,7 @@ import {
   SHORTCUTS,
   type ShortcutId,
 } from "@/modules/shortcuts/shortcuts";
+import type { SshHost } from "@/modules/ssh/store";
 import type { Tab } from "@/modules/tabs";
 import { TabBar } from "@/modules/tabs";
 import { NotificationBell } from "@/modules/agents";
@@ -41,6 +42,7 @@ type Props = {
   onNewPreview: () => void;
   onNewEditor: () => void;
   onNewGitGraph: () => void;
+  onNewSsh: (host: SshHost) => void;
   onClose: (id: number) => void;
   /** Promote a preview (transient) tab to persistent. */
   onPin: (id: number) => void;
@@ -69,6 +71,7 @@ export function Header({
   onNewPreview,
   onNewEditor,
   onNewGitGraph,
+  onNewSsh,
   onClose,
   onPin,
   onRename,
@@ -204,6 +207,7 @@ export function Header({
           onNewPreview={onNewPreview}
           onNewEditor={onNewEditor}
           onNewGitGraph={onNewGitGraph}
+          onNewSsh={onNewSsh}
           onClose={onClose}
           onPin={onPin}
           onRename={onRename}

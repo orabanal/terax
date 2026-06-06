@@ -1,4 +1,5 @@
 import { useTheme } from "@/modules/theme";
+import type { SshHost } from "@/modules/ssh/store";
 import type { SearchAddon } from "@xterm/addon-search";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { BlockInputBar, type BlockInputBarHandle } from "./block/BlockInputBar";
@@ -21,6 +22,10 @@ type Props = {
   initialCwd?: string;
   /** Enable command-block decorations (OSC 133) for this terminal. */
   blocks?: boolean;
+  /** Override the shell with an arbitrary argv (e.g. ["ssh", "user@host"]). */
+  command?: string[];
+  /** SSH host to connect to instead of opening a local PTY. */
+  sshHost?: SshHost & { password?: string };
   onSearchReady?: (leafId: number, addon: SearchAddon) => void;
   onExit?: (leafId: number, code: number) => void;
   onCwd?: (leafId: number, cwd: string) => void;
@@ -34,6 +39,8 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(
       focused = true,
       initialCwd,
       blocks = false,
+      command,
+      sshHost,
       onSearchReady,
       onExit,
       onCwd,
@@ -52,6 +59,8 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(
       focused,
       initialCwd,
       blocks,
+      command,
+      sshHost,
       onSearchReady: (a) => onSearchReady?.(leafId, a),
       onExit: (c) => onExit?.(leafId, c),
       onCwd: (c) => onCwd?.(leafId, c),

@@ -1,9 +1,10 @@
 import type { Tab } from "@/modules/tabs";
 import type { SearchAddon } from "@xterm/addon-search";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PaneTreeView } from "./PaneTreeView";
 import type { TerminalPaneHandle } from "./TerminalPane";
 import { leafIds } from "./lib/panes";
+import { SshConnectingModal } from "@/modules/ssh/SshConnectingModal";
 
 type Props = {
   tabs: Tab[];
@@ -36,6 +37,9 @@ export function TerminalStack({
     () => tabs.filter((t) => t.kind === "terminal"),
     [tabs],
   );
+
+  // hover state lives here, keyed by tab id, so all panes in a tab share it
+  const [hoveredByTab, setHoveredByTab] = useState<Record<number, number | null>>({});
 
   const registerRef = useRef(registerHandle);
   const searchReadyRef = useRef(onSearchReady);
@@ -81,6 +85,12 @@ export function TerminalStack({
     <div className="relative h-full w-full">
       {terminals.map((t) => {
         const tabVisible = t.id === activeId;
+        const command = t.kind === "terminal" ? t.command : undefined;
+        const sshHost = t.kind === "terminal" ? t.sshHost : undefined;
+        const activeLeafId = t.kind === "terminal" ? t.activeLeafId : 0;
+        const leaves = leafIds(t.paneTree);
+        const multiPane = leaves.length > 1;
+        const hoveredLeafId = hoveredByTab[t.id] ?? null;
         return (
           <div
             key={t.id}
@@ -94,11 +104,25 @@ export function TerminalStack({
             <PaneTreeView
               node={t.paneTree}
               tabVisible={tabVisible}
-              activeLeafId={t.activeLeafId}
+              activeLeafId={activeLeafId}
               blocks={t.blocks ?? false}
+              command={command}
+              sshHost={sshHost}
               onFocusLeaf={(leafId) => onFocusLeaf(t.id, leafId)}
               getBundle={getBundle}
+              hoveredLeafId={hoveredLeafId}
+              onHoverLeaf={(leafId) =>
+                setHoveredByTab((prev) => ({ ...prev, [t.id]: leafId }))
+              }
+              multiPane={multiPane}
             />
+            {sshHost && leaves.map((lid) => (
+              <SshConnectingModal
+                key={lid}
+                leafId={lid}
+                hostName={sshHost.name}
+              />
+            ))}
           </div>
         );
       })}

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { ensureMonoFontsLoaded } from "@/lib/fonts";
 import { usePreferencesStore } from "@/modules/settings/preferences";
+import type { SshHost } from "@/modules/ssh/store";
 import type { SearchAddon } from "@xterm/addon-search";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DormantRing } from "./dormantRing";
@@ -10,7 +11,7 @@ import {
   registerCwdHandler,
   registerPromptTracker,
 } from "./osc-handlers";
-import { openPty, type PtySession } from "./pty-bridge";
+import { openPty, openSshPty, type PtySession } from "./pty-bridge";
 import { BlockDecorations } from "../block/lib/blockDecorations";
 import "../block/block.css";
 import {
@@ -46,6 +47,8 @@ type Session = {
   pty: PtySession | null;
   ptyOpening: boolean;
   initialCwd: string | undefined;
+  command: string[] | undefined;
+  sshHost: (SshHost & { password?: string }) | undefined;
   lastCwd: string | null;
   pendingExit: number | null;
   shellExited: boolean;
@@ -65,13 +68,11 @@ type Session = {
   blockMode: BlockMode;
   blockListeners: Set<() => void>;
   blockDecorations: BlockDecorations | null;
-  // True if the slot was in alt-screen mode (TUI like vim, htop, dofek)
-  // at the most recent release. Read once on the next bind to trigger a
-  // SIGWINCH-driven repaint instead of replaying dormant bytes.
   altScreenAtRelease: boolean;
 };
 
 const sessions = new Map<number, Session>();
+export const sshStatusListeners = new Map<number, (msg: string) => void>();
 
 const readyLeaves = new Set<number>();
 const readyWaiters = new Map<
@@ -105,6 +106,8 @@ export function whenSessionReady(leafId: number, timeoutMs = 4000): Promise<void
     readyWaiters.set(leafId, arr);
   });
 }
+
+export { focusSlot };
 
 export function writeToSession(leafId: number, data: string): boolean {
   const s = sessions.get(leafId);
@@ -177,6 +180,8 @@ function ensureSession(
   leafId: number,
   initialCwd?: string,
   blocks = false,
+  command?: string[],
+  sshHost?: SshHost & { password?: string },
 ): Session {
   const existing = sessions.get(leafId);
   if (existing) return existing;
@@ -185,6 +190,8 @@ function ensureSession(
     pty: null,
     ptyOpening: false,
     initialCwd,
+    command,
+    sshHost,
     lastCwd: null,
     pendingExit: null,
     shellExited: false,
@@ -232,6 +239,25 @@ async function openPtyForSession(
 ): Promise<PtySession> {
   const startCols = s.cols > 0 ? s.cols : 80;
   const startRows = s.rows > 0 ? s.rows : 24;
+
+  if (s.sshHost) {
+    const host = s.sshHost;
+    return openSshPty(startCols, startRows, host, host.password, {
+      onData: (bytes) => deliverPtyBytes(leafId, bytes),
+      onExit: (code) => {
+        s.shellExited = true;
+        s.pty = null;
+        const slot = getSlotForLeaf(leafId);
+        if (slot) slot.term.options.disableStdin = true;
+        if (s.callbacks.onExit) s.callbacks.onExit(code);
+        else s.pendingExit = code;
+      },
+      onStatus: (msg) => {
+        sshStatusListeners.get(leafId)?.(msg);
+      },
+    });
+  }
+
   return openPty(
     startCols,
     startRows,
@@ -248,6 +274,7 @@ async function openPtyForSession(
     },
     cwd,
     s.blocks,
+    s.command,
   );
 }
 
@@ -457,6 +484,8 @@ type Options = {
   focused?: boolean;
   initialCwd?: string;
   blocks?: boolean;
+  command?: string[];
+  sshHost?: SshHost & { password?: string };
   onSearchReady?: (addon: SearchAddon) => void;
   onExit?: (code: number) => void;
   onCwd?: (cwd: string) => void;
@@ -469,6 +498,8 @@ export function useTerminalSession({
   focused = true,
   initialCwd,
   blocks = false,
+  command,
+  sshHost,
   onSearchReady,
   onExit,
   onCwd,
@@ -478,7 +509,7 @@ export function useTerminalSession({
 
   useEffect(() => {
     let cancelled = false;
-    const s = ensureSession(leafId, initialCwd, blocks);
+    const s = ensureSession(leafId, initialCwd, blocks, command, sshHost);
     s.ready.then(() => {
       if (cancelled || s.disposed) return;
       const node = container.current;
@@ -494,12 +525,12 @@ export function useTerminalSession({
       cancelled = true;
       detachSession(leafId);
     };
-  }, [leafId, container, initialCwd, blocks]);
+  }, [leafId, container, initialCwd, blocks, command, sshHost]);
 
   const [blockMode, setBlockMode] = useState<BlockMode>("prompt");
   useEffect(() => {
     if (!blocks) return;
-    const s = ensureSession(leafId, initialCwd, blocks);
+    const s = ensureSession(leafId, initialCwd, blocks, command, sshHost);
     setBlockMode(s.blockMode);
     const cb = () => setBlockMode(sessions.get(leafId)?.blockMode ?? "prompt");
     s.blockListeners.add(cb);
