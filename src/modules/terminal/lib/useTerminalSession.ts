@@ -74,6 +74,11 @@ type Session = {
 const sessions = new Map<number, Session>();
 export const sshStatusListeners = new Map<number, (msg: string) => void>();
 
+/** Returns true if the session for `leafId` already has an active PTY. */
+export function isSessionConnected(leafId: number): boolean {
+  return !!sessions.get(leafId)?.pty;
+}
+
 const readyLeaves = new Set<number>();
 const readyWaiters = new Map<
   number,

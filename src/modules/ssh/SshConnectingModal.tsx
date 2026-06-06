@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
-import { focusSlot, sshStatusListeners } from "@/modules/terminal/lib/useTerminalSession";
+import {
+  focusSlot,
+  isSessionConnected,
+  sshStatusListeners,
+} from "@/modules/terminal/lib/useTerminalSession";
 
 type Props = {
   leafId: number;
@@ -11,9 +15,14 @@ const DONE_STATES = ["Connected", "Error", "Failed", "Closed"];
 
 export function SshConnectingModal({ leafId, hostName }: Props) {
   const [status, setStatus] = useState<string>("Connecting...");
-  const [visible, setVisible] = useState(true);
+  const [visible, setVisible] = useState(() => !isSessionConnected(leafId));
 
   useEffect(() => {
+    if (isSessionConnected(leafId)) {
+      setVisible(false);
+      return;
+    }
+
     setStatus("Connecting...");
     setVisible(true);
 

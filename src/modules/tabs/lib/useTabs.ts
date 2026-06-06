@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  extractLeaf,
   findLeafCwd,
   hasLeaf,
   leafIds,
@@ -15,7 +16,7 @@ import { disposeSession } from "@/modules/terminal/lib/useTerminalSession";
 import { type SshHost } from "@/modules/ssh/store";
 
 // Matches the renderer slot pool size — over this we'd evict an active leaf.
-export const MAX_PANES_PER_TAB = 4;
+export const MAX_PANES_PER_TAB = 9;
 
 export type TerminalTab = {
   id: number;
@@ -831,6 +832,48 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     return closedTab;
   }, []);
 
+  /** Move a leaf from its current tab to a new standalone tab. */
+  const extractLeafToTab = useCallback(
+    (tabId: number, leafId: number): void => {
+      const newTabId = nextIdRef.current++;
+      setTabs((curr) => {
+        const tab = curr.find((t) => t.id === tabId);
+        if (!tab || tab.kind !== "terminal") return curr;
+        const result = extractLeaf(tab.paneTree, leafId);
+        if (!result) return curr;
+        const { tree, extracted } = result;
+        const cwd =
+          extracted.kind === "leaf" ? extracted.cwd : undefined;
+        const newTab: TerminalTab = {
+          id: newTabId,
+          kind: "terminal",
+          title: "shell",
+          cwd,
+          paneTree: extracted,
+          activeLeafId: leafId,
+          sshHost: tab.sshHost,
+          sshHostId: tab.sshHostId,
+          command: tab.command,
+        };
+        const updated = curr
+          .map((t) => {
+            if (t.id !== tabId) return t;
+            if (t.kind !== "terminal") return t;
+            if (tree === null) return null;
+            const remaining = leafIds(tree);
+            const newActive = remaining.includes(t.activeLeafId)
+              ? t.activeLeafId
+              : remaining[0];
+            return { ...t, paneTree: tree, activeLeafId: newActive };
+          })
+          .filter((t): t is Tab => t !== null);
+        return [...updated, newTab];
+      });
+      setActiveId(newTabId);
+    },
+    [],
+  );
+
   const resetWorkspace = useCallback((cwd?: string) => {
     const tabId = nextIdRef.current++;
     const leafId = nextIdRef.current++;
@@ -882,6 +925,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     splitActivePane,
     closeActivePane,
     closePaneByLeaf,
+    extractLeafToTab,
     resetWorkspace,
   };
 }

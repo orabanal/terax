@@ -273,7 +273,7 @@ export function TabBar({
               <HugeiconsIcon icon={PlusSignIcon} size={14} strokeWidth={2} />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="min-w-44">
+          <DropdownMenuContent align="start" className="min-w-56 max-h-64">
             <DropdownMenuItem onSelect={() => onNew()}>
               <HugeiconsIcon
                 icon={ComputerTerminal02Icon}
@@ -331,16 +331,13 @@ export function TabBar({
             {sshHydrated && sshHosts.length === 0 && (
               <DropdownMenuItem disabled>
                 <HugeiconsIcon icon={ServerStack01Icon} size={14} strokeWidth={1.75} />
-                <span className="flex-1 text-muted-foreground">No SSH hosts configured</span>
+                <span className="flex-1 text-[#808080]">No SSH hosts configured</span>
               </DropdownMenuItem>
             )}
             {sshHosts.map((host) => (
               <DropdownMenuItem key={host.id} onSelect={() => onNewSsh(host)}>
                 <HugeiconsIcon icon={ServerStack01Icon} size={14} strokeWidth={1.75} />
-                <span className="flex-1">{host.name}</span>
-                <span className="text-xs text-muted-foreground">
-                  {host.username}@{host.host}
-                </span>
+                <span className="flex-1 truncate">{host.name}</span>
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>

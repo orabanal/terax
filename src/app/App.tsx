@@ -115,6 +115,7 @@ export default function App() {
     splitActivePane,
     closeActivePane,
     closePaneByLeaf,
+    extractLeafToTab,
     resetWorkspace,
   } = useTabs(getLaunchDir() ? { cwd: getLaunchDir() } : undefined);
 
@@ -889,6 +890,9 @@ export default function App() {
                       onCwd={handleTerminalCwd}
                       onExit={handleLeafExit}
                       onFocusLeaf={handleFocusLeaf}
+                      splitPane={splitActivePane}
+                      closePane={closePaneByLeaf}
+                      extractToTab={extractLeafToTab}
                       registerEditorHandle={registerEditorHandle}
                       onEditorDirtyChange={handleEditorDirty}
                       onEditorCloseTab={disposeTab}

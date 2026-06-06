@@ -117,6 +117,29 @@ export function removeLeaf(
   return { ...tree, children: newChildren };
 }
 
+/**
+ * Extract a leaf from the tree and return it as a standalone single-leaf tree.
+ * The remaining tree is returned alongside (or `null` if the leaf was the only node).
+ * Unlike `removeLeaf`, the extracted leaf node is preserved for reuse in a new tab.
+ */
+export function extractLeaf(
+  tree: PaneNode,
+  leafId: PaneId,
+): { tree: PaneNode | null; extracted: PaneNode } | null {
+  if (!hasLeaf(tree, leafId)) return null;
+  function findNode(n: PaneNode): PaneNode | null {
+    if (isLeaf(n)) return n.id === leafId ? n : null;
+    for (const c of n.children) {
+      const found = findNode(c);
+      if (found) return found;
+    }
+    return null;
+  }
+  const extracted = findNode(tree);
+  if (!extracted) return null;
+  return { tree: removeLeaf(tree, leafId), extracted };
+}
+
 export function nextLeafId(
   tree: PaneNode,
   currentId: PaneId,

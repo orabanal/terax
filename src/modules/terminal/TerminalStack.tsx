@@ -1,4 +1,5 @@
 import type { Tab } from "@/modules/tabs";
+import type { SplitDir } from "@/modules/terminal/lib/panes";
 import type { SearchAddon } from "@xterm/addon-search";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PaneTreeView } from "./PaneTreeView";
@@ -15,6 +16,9 @@ type Props = {
   onCwd: (leafId: number, cwd: string) => void;
   onExit: (leafId: number, code: number) => void;
   onFocusLeaf: (tabId: number, leafId: number) => void;
+  splitPane: (tabId: number, dir: SplitDir) => void;
+  closePane: (leafId: number) => void;
+  extractToTab: (tabId: number, leafId: number) => void;
 };
 
 type Bundle = {
@@ -32,6 +36,9 @@ export function TerminalStack({
   onCwd,
   onExit,
   onFocusLeaf,
+  splitPane,
+  closePane,
+  extractToTab,
 }: Props) {
   const terminals = useMemo(
     () => tabs.filter((t) => t.kind === "terminal"),
@@ -115,6 +122,9 @@ export function TerminalStack({
                 setHoveredByTab((prev) => ({ ...prev, [t.id]: leafId }))
               }
               multiPane={multiPane}
+              onSplit={(dir) => splitPane(t.id, dir)}
+              onClosePane={(leafId) => closePane(leafId)}
+              onExtractToTab={(leafId) => extractToTab(t.id, leafId)}
             />
             {sshHost && leaves.map((lid) => (
               <SshConnectingModal
