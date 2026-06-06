@@ -33,17 +33,23 @@ export type DiffOpenInput = {
 };
 
 export type AgentRunBridgeProps = {
+  sessionIds: string[];
   openAiDiffTab: (input: DiffOpenInput) => number | null;
   closeAiDiffTab: (approvalId: string) => void;
 };
 
-export function AgentRunBridge(props: AgentRunBridgeProps) {
-  const sessionId = useChatStore((s) => s.activeSessionId);
-  if (!sessionId) return null;
-  return <Bridge sessionId={sessionId} {...props} />;
+export function AgentRunBridge({ sessionIds, ...props }: AgentRunBridgeProps) {
+  if (sessionIds.length === 0) return null;
+  return (
+    <>
+      {sessionIds.map((sessionId) => (
+        <Bridge key={sessionId} sessionId={sessionId} {...props} />
+      ))}
+    </>
+  );
 }
 
-type BridgeProps = { sessionId: string } & AgentRunBridgeProps;
+type BridgeProps = { sessionId: string } & Omit<AgentRunBridgeProps, "sessionIds">;
 
 type WriteFileInput = { path?: unknown; content?: unknown };
 
@@ -63,19 +69,34 @@ function Bridge({
   const { status, messages, addToolApprovalResponse } = useChat<UIMessage>({
     chat,
   });
-  const patch = useChatStore((s) => s.patchAgentMeta);
+  const patch = useChatStore((s) => s.patchAgentMetaForSession);
   const openMini = useChatStore((s) => s.openMini);
   const persistMessages = useChatStore((s) => s.persistMessages);
   const setApprovalResponder = useChatStore((s) => s.setApprovalResponder);
 
-  // Expose the approval responder so the diff tab can resolve approvals.
-  // We keep it in a ref-stable closure so identity is stable per render.
+  const pendingApprovalIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const m of messages) {
+      if (m.role !== "assistant") continue;
+      for (const p of m.parts) {
+        if ((p as { state?: string }).state !== "approval-requested") continue;
+        const id = (p as { approval?: { id?: string } }).approval?.id;
+        if (id) ids.push(id);
+      }
+    }
+    return ids;
+  }, [messages]);
+
   useEffect(() => {
-    setApprovalResponder((id, approved) =>
-      addToolApprovalResponse({ id, approved }),
-    );
-    return () => setApprovalResponder(null);
-  }, [setApprovalResponder, addToolApprovalResponse]);
+    for (const id of pendingApprovalIds) {
+      setApprovalResponder(id, (approved) =>
+        addToolApprovalResponse({ id, approved }),
+      );
+    }
+    return () => {
+      for (const id of pendingApprovalIds) setApprovalResponder(id, null);
+    };
+  }, [pendingApprovalIds, setApprovalResponder, addToolApprovalResponse]);
 
   useEffect(() => {
     persistMessages(sessionId, messages);
@@ -110,7 +131,7 @@ function Bridge({
     else if (status === "streaming") runStatus = "streaming";
     else if (status === "error") runStatus = "error";
     else runStatus = "idle";
-    patch({
+    patch(sessionId, {
       status: runStatus,
       approvalsPending,
       ...(runStatus === "idle" || runStatus === "error"
@@ -118,7 +139,7 @@ function Bridge({
         : {}),
       ...(runStatus === "idle" ? { error: null } : {}),
     });
-  }, [status, approvalsPending, patch]);
+  }, [sessionId, status, approvalsPending, patch]);
 
   useEffect(() => {
     if (approvalsPending > 0) openMini();
@@ -132,7 +153,7 @@ function Bridge({
   useEffect(() => {
     openedRef.current = new Set();
     fileMutationFingerprintRef.current = "";
-  }, [sessionId]);
+  }, []);
 
   // Cheap fingerprint of file-mutation tool parts only. The diff-tab effect
   // is the most expensive thing on the streaming path, so we skip it when

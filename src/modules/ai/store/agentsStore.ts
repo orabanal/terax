@@ -15,10 +15,13 @@ type AgentsState = {
   hydrated: boolean;
   customAgents: Agent[];
   activeId: string;
+  activeIdByScope: Record<string, string>;
   /** All agents, builtin first. */
   all: () => Agent[];
   hydrate: () => Promise<void>;
   setActiveId: (id: string) => void;
+  getActiveIdForScope: (scopeKey: string) => string;
+  setActiveIdForScope: (scopeKey: string, id: string) => void;
   upsert: (agent: Agent) => void;
   remove: (id: string) => void;
 };
@@ -33,6 +36,7 @@ export const useAgentsStore = create<AgentsState>((set, get) => ({
   hydrated: false,
   customAgents: [],
   activeId: BUILTIN_AGENTS[0].id,
+  activeIdByScope: {},
   all: () => [...BUILTIN_AGENTS, ...get().customAgents],
   hydrate: async () => {
     if (initialized) return;
@@ -49,6 +53,9 @@ export const useAgentsStore = create<AgentsState>((set, get) => ({
     set({ activeId: id });
     void saveActiveAgentId(id).then(broadcast);
   },
+  getActiveIdForScope: (key) => get().activeIdByScope[key] ?? get().activeId,
+  setActiveIdForScope: (key, id) =>
+    set((s) => ({ activeIdByScope: { ...s.activeIdByScope, [key]: id } })),
   upsert: (agent) => {
     if (agent.builtIn) return;
     const list = get().customAgents;

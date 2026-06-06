@@ -3,9 +3,10 @@ import {
   type ChatTransport,
   lastAssistantMessageIsCompleteWithApprovalResponses,
 } from "ai";
-import { getModel, providerNeedsKey, type ModelId } from "../config";
+import { getModel, isCompatModelId, providerNeedsKey, type ModelId } from "../config";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { BUILTIN_AGENTS } from "../lib/agents";
+import { scopeKey } from "../lib/sessions";
 import { useAgentsStore } from "./agentsStore";
 import { usePlanStore } from "./planStore";
 import { createContextAwareTransport } from "../lib/transport";
@@ -20,6 +21,13 @@ import {
 
 function makeChat(sessionId: string): Chat<UIMessage> {
   const readCache = new Map<string, { size: number; hash: number }>();
+
+  const getSessionScopeKey = (): string | null => {
+    const session = useChatStore.getState().sessions.find((s) => s.id === sessionId);
+    if (!session?.scope) return null;
+    return scopeKey(session.scope);
+  };
+
   const toolContext: ToolContext = {
     getCwd: () => useChatStore.getState().live.getCwd(),
     getWorkspaceRoot: () => useChatStore.getState().live.getWorkspaceRoot(),
@@ -35,19 +43,41 @@ function makeChat(sessionId: string): Chat<UIMessage> {
       useChatStore.getState().live.readLeafBuffer(leafId),
     readCache,
     getSessionId: () => sessionId,
-    getPermissionMode: () => useChatStore.getState().permissionMode,
+    getPermissionMode: () => {
+      const sk = getSessionScopeKey();
+      const state = useChatStore.getState();
+      return sk ? state.getPermissionModeForScope(sk) : state.permissionMode;
+    },
     getCommandBlocklist: () => useChatStore.getState().commandBlocklist,
+    getWebSearchConfig: () => {
+      const prefs = usePreferencesStore.getState();
+      if (!prefs.webSearchEnabled) return null;
+      return {
+        provider: prefs.webSearchProvider,
+        apiKey: null,
+        maxResults: prefs.webSearchMaxResults,
+        host: prefs.webSearchHost || null,
+      };
+    },
   };
 
   const transport = createContextAwareTransport({
     getKeys: () => useChatStore.getState().apiKeys,
     toolContext,
-    getModelId: () => useChatStore.getState().selectedModelId,
+    getModelId: () => {
+      const sk = getSessionScopeKey();
+      const state = useChatStore.getState();
+      return sk ? state.getSelectedModelForScope(sk) : state.selectedModelId;
+    },
     getCustomInstructions: () =>
       usePreferencesStore.getState().customInstructions,
     getAgentPersona: () => {
-      const { activeId, customAgents } = useAgentsStore.getState();
-      const all = [...BUILTIN_AGENTS, ...customAgents];
+      const sk = getSessionScopeKey();
+      const agentsState = useAgentsStore.getState();
+      const activeId = sk
+        ? agentsState.getActiveIdForScope(sk)
+        : agentsState.activeId;
+      const all = [...BUILTIN_AGENTS, ...agentsState.customAgents];
       const a = all.find((x) => x.id === activeId) ?? BUILTIN_AGENTS[0];
       return { name: a.name, instructions: a.instructions };
     },
@@ -78,19 +108,21 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     getCustomEndpoints: () => usePreferencesStore.getState().customEndpoints,
     getCustomEndpointKeys: () => useChatStore.getState().customEndpointKeys,
     onStep: (step) => {
-      useChatStore.getState().patchAgentMeta({ step });
+      useChatStore.getState().patchAgentMetaForSession(sessionId, { step });
     },
     onCompact: (info) => {
-      useChatStore.getState().patchAgentMeta({
+      useChatStore.getState().patchAgentMetaForSession(sessionId, {
         compactionNotice: { droppedCount: info.droppedCount, at: Date.now() },
       });
     },
     onFinishMeta: (info) => {
-      useChatStore.getState().patchAgentMeta({ hitStepCap: info.hitStepCap });
+      useChatStore
+        .getState()
+        .patchAgentMetaForSession(sessionId, { hitStepCap: info.hitStepCap });
     },
     onUsage: (delta) => {
-      const cur = useChatStore.getState().agentMeta.tokens;
-      useChatStore.getState().patchAgentMeta({
+      const cur = useChatStore.getState().getAgentMetaForSession(sessionId).tokens;
+      useChatStore.getState().patchAgentMetaForSession(sessionId, {
         tokens: {
           inputTokens: cur.inputTokens + delta.inputTokens,
           outputTokens: cur.outputTokens + delta.outputTokens,
@@ -111,7 +143,7 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     messages: initialMessages,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
     onError: (e) => {
-      useChatStore.getState().patchAgentMeta({
+      useChatStore.getState().patchAgentMetaForSession(sessionId, {
         status: "error",
         error: e instanceof Error ? e.message : String(e),
       });
@@ -130,15 +162,24 @@ export function getOrCreateChat(sessionId: string): Chat<UIMessage> {
   return c;
 }
 
-export async function sendMessage(text: string): Promise<boolean> {
+export async function sendMessage(
+  sessionId: string,
+  text: string,
+): Promise<boolean> {
   const state = useChatStore.getState();
-  const sessionId = state.activeSessionId;
-  if (!sessionId) return false;
+  const session = state.sessions.find((s) => s.id === sessionId);
+  const sk = session?.scope ? scopeKey(session.scope) : null;
+  const modelId = sk ? state.getSelectedModelForScope(sk) : state.selectedModelId;
   if (
-    providerNeedsKey(getModel(state.selectedModelId as ModelId).provider) &&
+    !isCompatModelId(modelId) &&
+    providerNeedsKey(getModel(modelId as ModelId).provider) &&
     !getActiveProviderKey()
   )
     return false;
+  state.patchAgentMetaForSession(sessionId, {
+    hitStepCap: false,
+    compactionNotice: null,
+  });
   const c = getOrCreateChat(sessionId);
   await c.sendMessage({ text });
   return true;

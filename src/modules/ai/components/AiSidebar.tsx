@@ -23,7 +23,17 @@ import {
   useRef,
   useState,
 } from "react";
-import type { SessionScope, SessionScopeType } from "../lib/sessions";
+import {
+  findActiveForScope,
+  scopeKey as makeScopeKey,
+  type SessionScope,
+  type SessionScopeType,
+} from "../lib/sessions";
+import {
+  getSkillCompletions,
+  tryRunSlashCommand,
+} from "../lib/slashCommands";
+import { useSkillsStore } from "../store/skillsStore";
 import { useChatStore, type PermissionMode } from "../store/chatStore";
 import { getOrCreateChat, sendMessage } from "../store/chatRuntime";
 import { AgentSwitcher } from "./AgentSwitcher";
@@ -93,6 +103,7 @@ export const AiSidebar = memo(function AiSidebar({
       />
 
       <AiSidebarInner
+        key={`${scopeType}:${scopeTargetId ?? ""}`}
         hasComposer={hasComposer}
         scopeType={scopeType}
         scopeTargetId={scopeTargetId}
@@ -113,32 +124,43 @@ function AiSidebarInner({
   scopeTargetId: string | null;
   onToggle: () => void;
 }) {
-  const scope: SessionScope = { type: scopeType, targetId: scopeTargetId ?? "" };
+  const scopeReady = scopeTargetId != null && scopeTargetId.length > 0;
+  const scope = useMemo<SessionScope>(
+    () => ({ type: scopeType, targetId: scopeTargetId ?? "" }),
+    [scopeType, scopeTargetId],
+  );
 
   const sessions = useChatStore((s) => s.sessions);
-  const activeSessionId = useChatStore((s) => s.activeSessionId);
+  const sessionsHydrated = useChatStore((s) => s.sessionsHydrated);
+  const activeByScope = useChatStore((s) => s.activeByScope);
   const newSession = useChatStore((s) => s.newSession);
   const deleteSession = useChatStore((s) => s.deleteSession);
-  const switchSession = useChatStore((s) => s.switchSession);
-  const getActiveSessionForScope = useChatStore((s) => s.getActiveSessionForScope);
-  const selectedModelId = useChatStore((s) => s.selectedModelId);
-  const setSelectedModelId = useChatStore((s) => s.setSelectedModelId);
-  const permissionMode = useChatStore((s) => s.permissionMode);
-  const setPermissionMode = useChatStore((s) => s.setPermissionMode);
+  const switchSessionForScope = useChatStore((s) => s.switchSessionForScope);
+  const ensureSessionForScope = useChatStore((s) => s.ensureSessionForScope);
+
+  const sk = makeScopeKey(scope);
+  const selectedModelId = useChatStore((s) => s.getSelectedModelForScope(sk));
+  const setSelectedModelId = useChatStore((s) => s.setSelectedModelForScope);
+  const permissionMode = useChatStore((s) => s.getPermissionModeForScope(sk));
+  const setPermissionMode = useChatStore((s) => s.setPermissionModeForScope);
 
   const [showHistory, setShowHistory] = useState(false);
   const [input, setInput] = useState("");
 
-  const scopedSessionId = getActiveSessionForScope(scope);
-  const sessionId = activeSessionId ?? scopedSessionId;
+  const sessionId = findActiveForScope(sessions, activeByScope, scope);
 
   useEffect(() => {
-    if (!sessionId && hasComposer) {
-      const s: SessionScope = { type: scopeType, targetId: scopeTargetId ?? "" };
-      const id = newSession(s);
-      switchSession(id);
+    if (!sessionId && hasComposer && sessionsHydrated && scopeReady) {
+      ensureSessionForScope(scope);
     }
-  }, [sessionId, hasComposer, newSession, switchSession, scopeType, scopeTargetId]);
+  }, [
+    sessionId,
+    hasComposer,
+    sessionsHydrated,
+    scopeReady,
+    ensureSessionForScope,
+    scope,
+  ]);
 
   if (!hasComposer) {
     return (
@@ -174,18 +196,19 @@ function AiSidebarInner({
     <AiSidebarSession
       sessionId={sessionId}
       scope={scope}
+      scopeKey={sk}
       input={input}
       setInput={setInput}
       showHistory={showHistory}
       setShowHistory={setShowHistory}
       onToggle={onToggle}
       permissionMode={permissionMode}
-      setPermissionMode={setPermissionMode}
+      setPermissionMode={(mode) => setPermissionMode(sk, mode)}
       selectedModelId={selectedModelId}
-      setSelectedModelId={setSelectedModelId}
+      setSelectedModelId={(id) => setSelectedModelId(sk, id)}
       deleteSession={deleteSession}
       sessions={sessions}
-      switchSession={switchSession}
+      switchSessionForScope={switchSessionForScope}
       newSession={newSession}
     />
   );
@@ -194,6 +217,7 @@ function AiSidebarInner({
 type SessionProps = {
   sessionId: string;
   scope: SessionScope;
+  scopeKey: string;
   input: string;
   setInput: (v: string) => void;
   showHistory: boolean;
@@ -205,13 +229,14 @@ type SessionProps = {
   setSelectedModelId: (id: string) => void;
   deleteSession: (id: string) => void;
   sessions: Array<{ id: string; title: string; scope?: SessionScope; updatedAt: number }>;
-  switchSession: (id: string) => void;
+  switchSessionForScope: (scope: SessionScope, id: string) => void;
   newSession: (scope?: SessionScope) => string;
 };
 
 function AiSidebarSession({
   sessionId,
   scope,
+  scopeKey: sk,
   input,
   setInput,
   showHistory,
@@ -223,7 +248,7 @@ function AiSidebarSession({
   setSelectedModelId,
   deleteSession,
   sessions,
-  switchSession,
+  switchSessionForScope,
   newSession,
 }: SessionProps) {
   const chat = useMemo(() => getOrCreateChat(sessionId), [sessionId]);
@@ -231,28 +256,72 @@ function AiSidebarSession({
   const isBusy = helpers.status === "submitted" || helpers.status === "streaming";
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const skills = useSkillsStore((s) => s.skills);
+  const hydrateSkills = useSkillsStore((s) => s.hydrate);
+  useEffect(() => { void hydrateSkills(); }, [hydrateSkills]);
+
+  const skillCompletions = useMemo(
+    () => getSkillCompletions(input, skills),
+    [input, skills],
+  );
+  const showSkillPicker = skillCompletions.length > 0 && input.startsWith("/");
+  const [pickerIndex, setPickerIndex] = useState(0);
+
+  const prevShowRef = useRef(showSkillPicker);
+  if (prevShowRef.current !== showSkillPicker) {
+    prevShowRef.current = showSkillPicker;
+    if (showSkillPicker) setPickerIndex(0);
+  }
+
   const handleSend = useCallback(async () => {
     const text = input.trim();
     if (!text || isBusy) return;
+    const outcome = tryRunSlashCommand(text, skills);
+    if (outcome.kind === "handled") {
+      setInput("");
+      return;
+    }
+    const toSend = outcome.kind === "send-prompt" ? outcome.prompt : text;
     setInput("");
-    await sendMessage(text);
-  }, [input, isBusy, setInput]);
+    await sendMessage(sessionId, toSend);
+  }, [input, isBusy, sessionId, setInput, skills]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (showSkillPicker) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setPickerIndex((i) => (i + 1) % skillCompletions.length);
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setPickerIndex((i) => (i - 1 + skillCompletions.length) % skillCompletions.length);
+          return;
+        }
+        if (e.key === "Tab" || (e.key === "Enter" && skillCompletions.length > 0 && !e.shiftKey)) {
+          e.preventDefault();
+          const chosen = skillCompletions[pickerIndex];
+          if (chosen) setInput(`/${chosen.name} `);
+          return;
+        }
+        if (e.key === "Escape") {
+          setInput("");
+          return;
+        }
+      }
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         void handleSend();
       }
     },
-    [handleSend],
+    [handleSend, showSkillPicker, skillCompletions, pickerIndex, setInput],
   );
 
   const handleNewChat = useCallback(() => {
-    const id = newSession(scope);
-    switchSession(id);
+    newSession(scope);
     setShowHistory(false);
-  }, [newSession, scope, switchSession, setShowHistory]);
+  }, [newSession, scope, setShowHistory]);
 
   const scopedSessions = useMemo(() => {
     return sessions
@@ -260,14 +329,14 @@ function AiSidebarSession({
       .map((s) => ({ id: s.id, title: s.title, updatedAt: s.updatedAt }));
   }, [sessions, scope]);
 
-  const step = useChatStore((s) => s.agentMeta.step);
+  const meta = useChatStore((s) => s.getAgentMetaForSession(sessionId));
 
   return (
     <>
       {/* Header */}
       <div className="flex h-10 shrink-0 items-center justify-between gap-1.5 border-b border-border/60 px-2">
         <div className="flex min-w-0 items-center gap-1.5">
-          <AgentSwitcher isMiniWindow />
+          <AgentSwitcher isMiniWindow scopeKey={sk} />
         </div>
         <div className="flex items-center gap-0.5">
           <Button
@@ -305,7 +374,7 @@ function AiSidebarSession({
           sessions={scopedSessions}
           activeId={sessionId}
           onSelect={(id) => {
-            switchSession(id);
+            switchSessionForScope(scope, id);
             setShowHistory(false);
           }}
           onDelete={(id) => {
@@ -321,6 +390,7 @@ function AiSidebarSession({
               <EmptyState />
             ) : (
               <AiChatView
+                sessionId={sessionId}
                 messages={helpers.messages}
                 status={helpers.status}
                 error={helpers.error}
@@ -332,17 +402,43 @@ function AiSidebarSession({
           </div>
 
           {/* Step indicator */}
-          {isBusy && step && (
+          {isBusy && meta.step && (
             <div className="flex shrink-0 items-center gap-2 border-t border-border/30 px-3 py-1.5">
               <Spinner />
               <span className="truncate text-[10.5px] text-muted-foreground">
-                {step}
+                {meta.step}
               </span>
             </div>
           )}
 
           {/* Input area */}
           <div className="shrink-0 border-t border-border/60">
+            {showSkillPicker && (
+              <div className="border-b border-border/40 bg-popover">
+                {skillCompletions.map((c, i) => (
+                  <button
+                    key={c.name}
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setInput(`/${c.name} `);
+                      textareaRef.current?.focus();
+                    }}
+                    className={cn(
+                      "flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors",
+                      i === pickerIndex
+                        ? "bg-accent text-accent-foreground"
+                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                    )}
+                  >
+                    <span className="font-mono text-[11px] text-primary">/{c.name}</span>
+                    {c.description && (
+                      <span className="truncate text-[10.5px]">{c.description}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="flex items-center gap-1 px-2 pt-2">
               <AiModelPicker
                 selectedModelId={selectedModelId}

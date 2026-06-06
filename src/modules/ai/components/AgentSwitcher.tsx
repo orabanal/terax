@@ -32,14 +32,33 @@ const ICONS: Record<AgentIconId, typeof CodeIcon> = {
   spark: SparklesIcon,
 };
 
-export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
-  // Subscribe to customAgents + activeId so the trigger updates live.
+export function AgentSwitcher({
+  isMiniWindow,
+  scopeKey: scopeKeyProp,
+}: {
+  isMiniWindow?: boolean;
+  scopeKey?: string;
+}) {
   const customAgents = useAgentsStore((s) => s.customAgents);
-  const activeId = useAgentsStore((s) => s.activeId);
+  const globalActiveId = useAgentsStore((s) => s.activeId);
+  const activeIdByScope = useAgentsStore((s) => s.activeIdByScope);
   const setActiveId = useAgentsStore((s) => s.setActiveId);
+  const setActiveIdForScope = useAgentsStore((s) => s.setActiveIdForScope);
 
   const list = useAgentsStore.getState().all();
-  void customAgents; // keeps the store subscription alive
+  void customAgents;
+
+  const activeId = scopeKeyProp
+    ? (activeIdByScope[scopeKeyProp] ?? globalActiveId)
+    : globalActiveId;
+
+  const setActive = (id: string) => {
+    if (scopeKeyProp) {
+      setActiveIdForScope(scopeKeyProp, id);
+    } else {
+      setActiveId(id);
+    }
+  };
 
   const active = list.find((a) => a.id === activeId) ?? list[0];
   const builtIn = list.filter((a) => a.builtIn);
@@ -78,7 +97,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
           return (
             <DropdownMenuItem
               key={a.id}
-              onSelect={() => setActiveId(a.id)}
+              onSelect={() => setActive(a.id)}
               className={cn(
                 "flex items-start gap-2 pr-2 text-[12px]",
                 a.id === activeId && "bg-accent/40",
@@ -123,7 +142,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
               return (
                 <DropdownMenuItem
                   key={a.id}
-                  onSelect={() => setActiveId(a.id)}
+                  onSelect={() => setActive(a.id)}
                   className={cn(
                     "flex items-start gap-2 text-[12px]",
                     a.id === activeId && "bg-accent/40",

@@ -5,6 +5,8 @@ import type { SettingsTab } from "@/modules/settings/openSettingsWindow";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   AiScanIcon,
+  CodeCircleIcon,
+  GlobalIcon,
   InformationCircleIcon,
   PaintBoardIcon,
   Settings01Icon,
@@ -18,10 +20,13 @@ import { type JSX, useEffect, useState } from "react";
 import { AboutSection } from "./sections/AboutSection";
 import { AgentsSection } from "./sections/AgentsSection";
 import { GeneralSection } from "./sections/GeneralSection";
+import { McpSection } from "./sections/McpSection";
 import { ModelsSection } from "./sections/ModelsSection";
 import { ShortcutsSection } from "./sections/ShortcutsSection";
+import { SkillsSection } from "./sections/SkillsSection";
 import { SshSection } from "./sections/SshSection";
 import { ThemesSection } from "./sections/ThemesSection";
+import { WebSearchSection } from "./sections/WebSearchSection";
 
 const TABS: { id: SettingsTab; label: string; icon: typeof Settings01Icon, component: () => JSX.Element }[] =
   [
@@ -30,6 +35,9 @@ const TABS: { id: SettingsTab; label: string; icon: typeof Settings01Icon, compo
     { id: "shortcuts", label: "Shortcuts", icon: KeyboardIcon, component: ShortcutsSection },
     { id: "models", label: "Models", icon: AiScanIcon, component: ModelsSection },
     { id: "agents", label: "Agents", icon: UserMultiple02Icon, component: AgentsSection },
+    { id: "websearch", label: "Web Search", icon: GlobalIcon, component: WebSearchSection },
+    { id: "mcp", label: "MCP", icon: CodeCircleIcon, component: McpSection },
+    { id: "skills", label: "Skills", icon: AiScanIcon, component: SkillsSection },
     { id: "ssh", label: "SSH", icon: ServerStack01Icon, component: SshSection },
     { id: "about", label: "About", icon: InformationCircleIcon, component: AboutSection },
   ];
@@ -40,6 +48,9 @@ const VALID_TABS: SettingsTab[] = [
   "shortcuts",
   "models",
   "agents",
+  "websearch",
+  "mcp",
+  "skills",
   "ssh",
   "about",
 ];

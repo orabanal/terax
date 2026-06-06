@@ -122,9 +122,9 @@ const ContextChips = memo(function ContextChips({
 }) {
   return (
     <div className="mb-1 flex flex-wrap gap-1">
-      {chips.map((c, i) => (
+      {chips.map((c) => (
         <span
-          key={i}
+          key={chipKey(c)}
           className="inline-flex items-center gap-1 rounded-md border border-border/50 bg-card/60 px-1.5 py-0.5 text-[10.5px] text-muted-foreground"
         >
           {chipIcon(c)}
@@ -154,6 +154,12 @@ function chipIcon(c: ContextChip) {
   return <HugeiconsIcon icon={HashtagIcon} size={10} strokeWidth={1.75} />;
 }
 
+function chipKey(c: ContextChip): string {
+  if (c.kind === "selection") return `${c.kind}:${c.source}:${c.lines}`;
+  if (c.kind === "file") return `${c.kind}:${c.name}:${c.lines}`;
+  return `${c.kind}:${c.name}`;
+}
+
 function chipLabel(c: ContextChip): string {
   if (c.kind === "selection") {
     return c.source === "editor" ? "Editor selection" : "Terminal selection";
@@ -170,6 +176,7 @@ type ApprovalArg = {
 };
 
 type Props = {
+  sessionId: string;
   messages: UIMessage[];
   status: ChatStatus;
   error: Error | undefined;
@@ -179,6 +186,7 @@ type Props = {
 };
 
 export function AiChatView({
+  sessionId,
   messages,
   status,
   error,
@@ -192,10 +200,13 @@ export function AiChatView({
     status === "streaming" && lastMessage?.role === "assistant"
       ? lastMessage.id
       : null;
-  const step = useChatStore((s) => s.agentMeta.step);
-  const hitStepCap = useChatStore((s) => s.agentMeta.hitStepCap);
-  const compactionNotice = useChatStore((s) => s.agentMeta.compactionNotice);
-  const patchAgentMeta = useChatStore((s) => s.patchAgentMeta);
+  const meta = useChatStore((s) => s.getAgentMetaForSession(sessionId));
+  const patchAgentMetaForSession = useChatStore(
+    (s) => s.patchAgentMetaForSession,
+  );
+  const step = meta.step;
+  const hitStepCap = meta.hitStepCap;
+  const compactionNotice = meta.compactionNotice;
   const showContinue =
     !isBusy && hitStepCap && lastMessage?.role === "assistant";
 
@@ -231,7 +242,9 @@ export function AiChatView({
         {compactionNotice && (
           <CompactionNotice
             droppedCount={compactionNotice.droppedCount}
-            onDismiss={() => patchAgentMeta({ compactionNotice: null })}
+            onDismiss={() =>
+              patchAgentMetaForSession(sessionId, { compactionNotice: null })
+            }
           />
         )}
         {showSpinner && (
@@ -243,9 +256,10 @@ export function AiChatView({
         {showContinue && (
           <ContinueRow
             onContinue={() => {
-              patchAgentMeta({ hitStepCap: false });
+              patchAgentMetaForSession(sessionId, { hitStepCap: false });
               void sendMessage(
-                "Continue from where you stopped. Don't recap — just keep going.",
+                sessionId,
+                "Continue from where you stopped. Don't recap, just keep going.",
               );
             }}
           />
@@ -335,6 +349,10 @@ const RenderedMessage = memo(function RenderedMessage({
       break;
     }
   }
+  const groups = useMemo(() => buildPartGroups(message.parts as AnyPart[]), [
+    message.parts,
+  ]);
+
   if (message.role === "user") {
     const rawText = message.parts
       .filter((p): p is { type: "text"; text: string } => p.type === "text")
@@ -362,10 +380,6 @@ const RenderedMessage = memo(function RenderedMessage({
       </Message>
     );
   }
-
-  const groups = useMemo(() => buildPartGroups(message.parts as AnyPart[]), [
-    message.parts,
-  ]);
 
   return (
     <Message from={message.role}>
@@ -440,8 +454,9 @@ function buildPartGroups(parts: AnyPart[]): Group[] {
         key: `reads-${partKey(run.parts[0], run.startIdx)}`,
       });
     } else {
+      const startIdx = run.startIdx;
       run.parts.forEach((p, k) => {
-        const idx = run!.startIdx + k;
+        const idx = startIdx + k;
         out.push({ kind: "single", part: p, idx, key: partKey(p, idx) });
       });
     }

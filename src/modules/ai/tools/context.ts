@@ -1,5 +1,11 @@
 export type PermissionMode = "observer" | "confirm" | "autonomous";
 
+export type WebSearchToolConfig = {
+  provider: "tavily" | "exa" | "bocha" | "zhipu" | "searxng";
+  maxResults: number;
+  host: string | null;
+};
+
 export type ToolContext = {
   /** Active terminal tab cwd, used to resolve relative paths. Null = home. */
   getCwd: () => string | null;
@@ -26,6 +32,8 @@ export type ToolContext = {
   getPermissionMode: () => PermissionMode;
   /** User-configured command blocklist (regex patterns). */
   getCommandBlocklist: () => string[];
+  /** Web search config. Returns null when web search is disabled or unconfigured. */
+  getWebSearchConfig: () => WebSearchToolConfig | null;
 };
 
 export function resolvePath(rawPath: string, cwd: string | null): string {

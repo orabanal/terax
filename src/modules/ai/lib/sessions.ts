@@ -34,6 +34,43 @@ export function scopeKey(scope: SessionScope): string {
   return `${scope.type}:${scope.targetId}`;
 }
 
+export function sameScope(a: SessionScope | undefined, b: SessionScope): boolean {
+  return !!a && a.type === b.type && a.targetId === b.targetId;
+}
+
+export function sessionMatchesScope(
+  session: SessionMeta,
+  scope: SessionScope,
+): boolean {
+  return sameScope(session.scope, scope);
+}
+
+export function findActiveForScope(
+  sessions: SessionMeta[],
+  activeByScope: Record<string, string>,
+  scope: SessionScope,
+): string | null {
+  const id = activeByScope[scopeKey(scope)];
+  if (!id) return null;
+  const session = sessions.find((s) => s.id === id);
+  return session && sessionMatchesScope(session, scope) ? id : null;
+}
+
+export function pruneActiveByScope(
+  activeByScope: Record<string, string>,
+  sessions: SessionMeta[],
+): Record<string, string> {
+  const byId = new Map(sessions.map((s) => [s.id, s]));
+  const next: Record<string, string> = {};
+  for (const [key, id] of Object.entries(activeByScope)) {
+    const session = byId.get(id);
+    if (!session?.scope) continue;
+    if (scopeKey(session.scope) !== key) continue;
+    next[key] = id;
+  }
+  return next;
+}
+
 export async function loadAll(): Promise<LoadedSessions> {
   const entries = await store.entries();
   let sessions: SessionMeta[] | undefined;

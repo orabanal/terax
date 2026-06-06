@@ -70,6 +70,7 @@ let windowActive =
   (!document.hidden && document.hasFocus());
 let windowActivityBound = false;
 let cursorBlinkEnabled = false;
+let cursorStyleValue: "block" | "bar" | "underline" = "bar";
 
 function bindWindowActivityListeners(): void {
   if (windowActivityBound || typeof window === "undefined") return;
@@ -182,7 +183,7 @@ function termOptions() {
     rescaleOverlappingGlyphs: true,
     theme: buildTerminalTheme(),
     cursorBlink: false,
-    cursorStyle: "bar" as const,
+    cursorStyle: cursorStyleValue,
     cursorInactiveStyle: "outline" as const,
     scrollback: prefs.terminalScrollback,
     allowProposedApi: true,
@@ -893,6 +894,15 @@ export function applyCursorBlink(enabled: boolean): void {
       slot,
       adapter?.isLeafFocused(slot.currentLeafId) ?? false,
     );
+  }
+}
+
+export function applyCursorStyle(style: "block" | "bar" | "underline"): void {
+  cursorStyleValue = style;
+  for (const slot of slots) {
+    if (slot.currentLeafId === null) continue;
+    if (slot.term.options.cursorStyle === style) continue;
+    slot.term.options.cursorStyle = style;
   }
 }
 

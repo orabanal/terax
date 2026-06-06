@@ -15,14 +15,17 @@ import { EMPTY_PROVIDER_KEYS, type ProviderKeys, type CustomEndpointKeys } from 
 import {
   deleteSessionData,
   deriveTitle,
+  findActiveForScope,
   loadAll,
   loadMessages,
   newSessionId,
+  pruneActiveByScope,
   saveActiveByScope,
   saveActiveId,
   saveMessages,
   saveSessionsList,
   scopeKey,
+  sessionMatchesScope,
   type SessionMeta,
   type SessionScope,
 } from "../lib/sessions";
@@ -93,22 +96,17 @@ export type PendingSelection = {
   source: "terminal" | "editor";
 };
 
-export type ApprovalResponder = (
-  approvalId: string,
-  approved: boolean,
-) => void;
+export type ApprovalResponder = (approved: boolean) => void;
 
 type StoreState = {
   live: Live;
   setLive: (live: Live) => void;
 
-  /**
-   * Set by AgentRunBridge each render. Lets surfaces outside the chat hook
-   * tree (e.g. the AI diff tab in the editor area) resolve a pending tool
-   * approval through the active session's `addToolApprovalResponse`.
-   */
-  approvalResponder: ApprovalResponder | null;
-  setApprovalResponder: (fn: ApprovalResponder | null) => void;
+  approvalResponders: Record<string, ApprovalResponder>;
+  setApprovalResponder: (
+    approvalId: string,
+    fn: ApprovalResponder | null,
+  ) => void;
   respondToApproval: (approvalId: string, approved: boolean) => void;
 
   apiKeys: ProviderKeys;
@@ -120,9 +118,15 @@ type StoreState = {
 
   selectedModelId: string;
   setSelectedModelId: (id: string) => void;
+  selectedModelByScope: Record<string, string>;
+  getSelectedModelForScope: (scopeKey: string) => string;
+  setSelectedModelForScope: (scopeKey: string, id: string) => void;
 
   permissionMode: PermissionMode;
   setPermissionMode: (mode: PermissionMode) => void;
+  permissionModeByScope: Record<string, PermissionMode>;
+  getPermissionModeForScope: (scopeKey: string) => PermissionMode;
+  setPermissionModeForScope: (scopeKey: string, mode: PermissionMode) => void;
 
   commandBlocklist: string[];
   setCommandBlocklist: (patterns: string[]) => void;
@@ -147,8 +151,15 @@ type StoreState = {
   consumeSelections: () => PendingSelection[];
 
   agentMeta: AgentMeta;
+  agentMetaBySession: Record<string, AgentMeta>;
+  getAgentMetaForSession: (sessionId: string) => AgentMeta;
   patchAgentMeta: (patch: Partial<AgentMeta>) => void;
+  patchAgentMetaForSession: (
+    sessionId: string,
+    patch: Partial<AgentMeta>,
+  ) => void;
   resetAgentMeta: () => void;
+  resetAgentMetaForSession: (sessionId: string) => void;
 
   // Sessions
   sessionsHydrated: boolean;
@@ -158,6 +169,8 @@ type StoreState = {
   hydrateSessions: () => Promise<void>;
   newSession: (scope?: SessionScope) => string;
   switchSession: (id: string) => void;
+  ensureSessionForScope: (scope: SessionScope) => string;
+  switchSessionForScope: (scope: SessionScope, id: string) => void;
   getActiveSessionForScope: (scope: SessionScope) => string | null;
   deleteSession: (id: string) => void;
   renameSession: (id: string, title: string) => void;
@@ -183,10 +196,23 @@ export const chats = new Map<string, Chat<UIMessage>>();
 export function touchChat(id: string, c: Chat<UIMessage>) {
   if (chats.has(id)) chats.delete(id);
   chats.set(id, c);
-  while (chats.size > CHATS_LRU_CAP) {
+
+  const state = useChatStore.getState();
+  const protectedIds = new Set(Object.values(state.activeByScope));
+  if (state.activeSessionId) protectedIds.add(state.activeSessionId);
+
+  let attempts = chats.size;
+  while (chats.size > CHATS_LRU_CAP && attempts > 0) {
+    attempts -= 1;
     const oldest = chats.keys().next().value;
     if (!oldest || oldest === id) break;
-    if (useChatStore.getState().activeSessionId === oldest) break;
+    if (protectedIds.has(oldest)) {
+      const protectedChat = chats.get(oldest);
+      if (!protectedChat) break;
+      chats.delete(oldest);
+      chats.set(oldest, protectedChat);
+      continue;
+    }
     flushPersistEntry(oldest);
     void chats.get(oldest)?.stop();
     chats.delete(oldest);
@@ -226,11 +252,23 @@ export const useChatStore = create<StoreState>((set, get) => ({
   live: NOOP_LIVE,
   setLive: (live) => set({ live }),
 
-  approvalResponder: null,
-  setApprovalResponder: (fn) => set({ approvalResponder: fn }),
+  approvalResponders: {},
+  setApprovalResponder: (approvalId, fn) =>
+    set((s) => {
+      const next = { ...s.approvalResponders };
+      if (fn) next[approvalId] = fn;
+      else delete next[approvalId];
+      return { approvalResponders: next };
+    }),
   respondToApproval: (approvalId, approved) => {
-    const fn = get().approvalResponder;
-    if (fn) fn(approvalId, approved);
+    const fn = get().approvalResponders[approvalId];
+    if (!fn) return;
+    set((s) => {
+      const next = { ...s.approvalResponders };
+      delete next[approvalId];
+      return { approvalResponders: next };
+    });
+    fn(approved);
   },
 
   apiKeys: { ...EMPTY_PROVIDER_KEYS },
@@ -247,9 +285,21 @@ export const useChatStore = create<StoreState>((set, get) => ({
     set({ selectedModelId: id });
     void pushRecentModel(id);
   },
+  selectedModelByScope: {},
+  getSelectedModelForScope: (key) =>
+    get().selectedModelByScope[key] ?? get().selectedModelId,
+  setSelectedModelForScope: (key, id) => {
+    set((s) => ({ selectedModelByScope: { ...s.selectedModelByScope, [key]: id } }));
+    void pushRecentModel(id);
+  },
 
   permissionMode: "confirm",
   setPermissionMode: (mode) => set({ permissionMode: mode }),
+  permissionModeByScope: {},
+  getPermissionModeForScope: (key) =>
+    get().permissionModeByScope[key] ?? get().permissionMode,
+  setPermissionModeForScope: (key, mode) =>
+    set((s) => ({ permissionModeByScope: { ...s.permissionModeByScope, [key]: mode } })),
 
   commandBlocklist: [],
   setCommandBlocklist: (patterns) => set({ commandBlocklist: patterns }),
@@ -296,9 +346,31 @@ export const useChatStore = create<StoreState>((set, get) => ({
   },
 
   agentMeta: IDLE_META,
+  agentMetaBySession: {},
+  getAgentMetaForSession: (sessionId) =>
+    get().agentMetaBySession[sessionId] ?? IDLE_META,
   patchAgentMeta: (patch) =>
     set((s) => ({ agentMeta: { ...s.agentMeta, ...patch } })),
+  patchAgentMetaForSession: (sessionId, patch) =>
+    set((s) => {
+      const nextMeta = {
+        ...(s.agentMetaBySession[sessionId] ?? IDLE_META),
+        ...patch,
+      };
+      return {
+        agentMetaBySession: {
+          ...s.agentMetaBySession,
+          [sessionId]: nextMeta,
+        },
+        ...(s.activeSessionId === sessionId ? { agentMeta: nextMeta } : {}),
+      };
+    }),
   resetAgentMeta: () => set({ agentMeta: IDLE_META }),
+  resetAgentMetaForSession: (sessionId) =>
+    set((s) => ({
+      agentMetaBySession: { ...s.agentMetaBySession, [sessionId]: IDLE_META },
+      ...(s.activeSessionId === sessionId ? { agentMeta: IDLE_META } : {}),
+    })),
 
   sessionsHydrated: false,
   sessions: [],
@@ -307,33 +379,35 @@ export const useChatStore = create<StoreState>((set, get) => ({
 
   hydrateSessions: async () => {
     if (get().sessionsHydrated) return;
-    const { sessions, activeByScope } = await loadAll();
-
-    const reusable = sessions[0]?.title === "New chat" ? sessions[0] : null;
-    let nextSessions: SessionMeta[];
-    let freshId: string;
-    if (reusable) {
-      nextSessions = sessions;
-      freshId = reusable.id;
-    } else {
-      freshId = newSessionId();
-      const fresh: SessionMeta = {
-        id: freshId,
-        title: "New chat",
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-      nextSessions = [fresh, ...sessions];
-      void saveSessionsList(nextSessions);
-    }
-    void saveActiveId(freshId);
+    const { sessions, activeId, activeByScope } = await loadAll();
+    const validActiveId = sessions.some((s) => s.id === activeId)
+      ? activeId
+      : null;
+    const scopedActive = pruneActiveByScope(activeByScope, sessions);
+    const preloadIds = Array.from(
+      new Set([
+        ...Object.values(scopedActive),
+        ...(validActiveId ? [validActiveId] : []),
+      ]),
+    );
+    await Promise.all(
+      preloadIds.map(async (id) => {
+        if (chats.has(id) || seedMessages.has(id)) return;
+        const messages = await loadMessages(id);
+        if (messages && messages.length > 0) seedMessages.set(id, messages);
+      }),
+    );
 
     set({
-      sessions: nextSessions,
-      activeSessionId: freshId,
-      activeByScope,
+      sessions,
+      activeSessionId: validActiveId,
+      activeByScope: scopedActive,
       sessionsHydrated: true,
     });
+    if (validActiveId !== activeId) void saveActiveId(validActiveId);
+    if (JSON.stringify(scopedActive) !== JSON.stringify(activeByScope)) {
+      void saveActiveByScope(scopedActive);
+    }
   },
 
   newSession: (scope?: SessionScope) => {
@@ -351,7 +425,13 @@ export const useChatStore = create<StoreState>((set, get) => ({
       scopeUpdate[scopeKey(scope)] = id;
       void saveActiveByScope(scopeUpdate);
     }
-    set({ sessions: next, activeSessionId: id, activeByScope: scopeUpdate, agentMeta: IDLE_META });
+    set({
+      sessions: next,
+      activeSessionId: id,
+      activeByScope: scopeUpdate,
+      agentMeta: IDLE_META,
+      agentMetaBySession: { ...get().agentMetaBySession, [id]: IDLE_META },
+    });
     void saveSessionsList(next);
     void saveActiveId(id);
     return id;
@@ -375,16 +455,48 @@ export const useChatStore = create<StoreState>((set, get) => ({
     });
   },
 
-  getActiveSessionForScope: (scope: SessionScope) => {
-    const key = scopeKey(scope);
-    const sessionId = get().activeByScope[key];
-    if (sessionId && get().sessions.some((s) => s.id === sessionId)) {
-      return sessionId;
+  ensureSessionForScope: (scope) => {
+    const existing = findActiveForScope(
+      get().sessions,
+      get().activeByScope,
+      scope,
+    );
+    if (existing) return existing;
+    return get().newSession(scope);
+  },
+
+  switchSessionForScope: (scope, id) => {
+    const session = get().sessions.find((s) => s.id === id);
+    if (!session || !sessionMatchesScope(session, scope)) return;
+
+    const activate = () => {
+      const nextActiveByScope = {
+        ...get().activeByScope,
+        [scopeKey(scope)]: id,
+      };
+      set({
+        activeSessionId: id,
+        activeByScope: nextActiveByScope,
+      });
+      void saveActiveId(id);
+      void saveActiveByScope(nextActiveByScope);
+    };
+    if (chats.has(id) || seedMessages.has(id)) {
+      activate();
+      return;
     }
-    return null;
+    void loadMessages(id).then((m) => {
+      if (m && m.length > 0 && !chats.has(id)) seedMessages.set(id, m);
+      activate();
+    });
+  },
+
+  getActiveSessionForScope: (scope: SessionScope) => {
+    return findActiveForScope(get().sessions, get().activeByScope, scope);
   },
 
   deleteSession: (id) => {
+    const deleted = get().sessions.find((s) => s.id === id);
     const remaining = get().sessions.filter((s) => s.id !== id);
     chats.get(id)?.stop();
     chats.delete(id);
@@ -397,23 +509,24 @@ export const useChatStore = create<StoreState>((set, get) => ({
     void deleteSessionData(id);
     void useTodosStore.getState().clearSession(id);
 
-    if (remaining.length === 0) {
-      const fresh: SessionMeta = {
-        id: newSessionId(),
-        title: "New chat",
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-      set({ sessions: [fresh], activeSessionId: fresh.id });
-      void saveSessionsList([fresh]);
-      void saveActiveId(fresh.id);
-      return;
+    const nextActiveByScope = pruneActiveByScope(get().activeByScope, remaining);
+    if (deleted?.scope && get().activeByScope[scopeKey(deleted.scope)] === id) {
+      delete nextActiveByScope[scopeKey(deleted.scope)];
     }
 
     const wasActive = get().activeSessionId === id;
-    const nextActive = wasActive ? remaining[0].id : get().activeSessionId;
-    set({ sessions: remaining, activeSessionId: nextActive });
+    const nextActive = wasActive ? (remaining[0]?.id ?? null) : get().activeSessionId;
+    const nextMetaBySession = { ...get().agentMetaBySession };
+    delete nextMetaBySession[id];
+    set({
+      sessions: remaining,
+      activeSessionId: nextActive,
+      activeByScope: nextActiveByScope,
+      agentMetaBySession: nextMetaBySession,
+      ...(wasActive ? { agentMeta: IDLE_META } : {}),
+    });
     void saveSessionsList(remaining);
+    void saveActiveByScope(nextActiveByScope);
     if (wasActive) void saveActiveId(nextActive);
   },
 

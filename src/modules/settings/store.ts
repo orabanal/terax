@@ -49,6 +49,10 @@ export const EDITOR_THEME_LABELS: Record<EditorThemeId, string> = {
   "xcode-light": "Xcode Light",
 };
 
+export type TerminalCursorStyle = "block" | "bar" | "underline";
+
+export type WebSearchProviderId = "tavily" | "exa" | "bocha" | "zhipu" | "searxng";
+
 export type Preferences = {
   theme: ThemePref;
   themeId: string;
@@ -81,6 +85,7 @@ export type Preferences = {
   showHidden: boolean;
   terminalWebglEnabled: boolean;
   terminalCursorBlink: boolean;
+  terminalCursorStyle: TerminalCursorStyle;
   terminalFontFamily: string;
   terminalLetterSpacing: number;
   terminalFontSize: number;
@@ -91,6 +96,10 @@ export type Preferences = {
   shortcuts: Record<ShortcutId, KeyBinding[]>;
   editorAutoSave: boolean;
   editorAutoSaveDelay: number;
+  webSearchEnabled: boolean;
+  webSearchProvider: WebSearchProviderId;
+  webSearchMaxResults: number;
+  webSearchHost: string;
 };
 
 const STORE_PATH = "terax-settings.json";
@@ -126,6 +135,7 @@ const KEY_SHOW_HIDDEN = "showHidden";
 const LEGACY_KEY_SHOW_HIDDEN_DIRS = "showHiddenDirectories";
 const KEY_TERMINAL_WEBGL_ENABLED = "terminalWebglEnabled";
 const KEY_TERMINAL_CURSOR_BLINK = "terminalCursorBlink";
+const KEY_TERMINAL_CURSOR_STYLE = "terminalCursorStyle";
 const KEY_TERMINAL_FONT_FAMILY = "terminalFontFamily";
 const KEY_TERMINAL_LETTER_SPACING = "terminalLetterSpacing";
 const KEY_TERMINAL_FONT_SIZE = "terminalFontSize";
@@ -136,6 +146,10 @@ const KEY_AGENT_NOTIFICATIONS = "agentNotifications";
 const KEY_SHORTCUTS = "shortcuts";
 const KEY_EDITOR_AUTO_SAVE = "editorAutoSave";
 const KEY_EDITOR_AUTO_SAVE_DELAY = "editorAutoSaveDelay";
+const KEY_WEB_SEARCH_ENABLED = "webSearchEnabled";
+const KEY_WEB_SEARCH_PROVIDER = "webSearchProvider";
+const KEY_WEB_SEARCH_MAX_RESULTS = "webSearchMaxResults";
+const KEY_WEB_SEARCH_HOST = "webSearchHost";
 
 export const TERMINAL_FONT_SIZE_DEFAULT = 14;
 export const TERMINAL_FONT_SIZE_MIN = 8;
@@ -184,6 +198,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   showHidden: false,
   terminalWebglEnabled: true,
   terminalCursorBlink: false,
+  terminalCursorStyle: "bar" as TerminalCursorStyle,
   terminalFontFamily: "",
   terminalLetterSpacing: 0,
   terminalFontSize: TERMINAL_FONT_SIZE_DEFAULT,
@@ -194,6 +209,10 @@ export const DEFAULT_PREFERENCES: Preferences = {
   shortcuts: {} as Record<ShortcutId, KeyBinding[]>,
   editorAutoSave: false,
   editorAutoSaveDelay: 1000,
+  webSearchEnabled: false,
+  webSearchProvider: "tavily",
+  webSearchMaxResults: 5,
+  webSearchHost: "",
 };
 
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
@@ -306,6 +325,9 @@ export async function loadPreferences(): Promise<Preferences> {
     terminalCursorBlink:
       get<boolean>(KEY_TERMINAL_CURSOR_BLINK) ??
       DEFAULT_PREFERENCES.terminalCursorBlink,
+    terminalCursorStyle:
+      get<TerminalCursorStyle>(KEY_TERMINAL_CURSOR_STYLE) ??
+      DEFAULT_PREFERENCES.terminalCursorStyle,
     terminalFontFamily:
       get<string>(KEY_TERMINAL_FONT_FAMILY) ??
       DEFAULT_PREFERENCES.terminalFontFamily,
@@ -336,6 +358,17 @@ export async function loadPreferences(): Promise<Preferences> {
       get<number>(KEY_EDITOR_AUTO_SAVE_DELAY) ??
         DEFAULT_PREFERENCES.editorAutoSaveDelay,
     ),
+    webSearchEnabled:
+      get<boolean>(KEY_WEB_SEARCH_ENABLED) ??
+      DEFAULT_PREFERENCES.webSearchEnabled,
+    webSearchProvider:
+      get<WebSearchProviderId>(KEY_WEB_SEARCH_PROVIDER) ??
+      DEFAULT_PREFERENCES.webSearchProvider,
+    webSearchMaxResults:
+      get<number>(KEY_WEB_SEARCH_MAX_RESULTS) ??
+      DEFAULT_PREFERENCES.webSearchMaxResults,
+    webSearchHost:
+      get<string>(KEY_WEB_SEARCH_HOST) ?? DEFAULT_PREFERENCES.webSearchHost,
   };
 }
 
@@ -487,6 +520,10 @@ export async function setTerminalCursorBlink(value: boolean): Promise<void> {
   await writePref(KEY_TERMINAL_CURSOR_BLINK, value);
 }
 
+export async function setTerminalCursorStyle(value: TerminalCursorStyle): Promise<void> {
+  await writePref(KEY_TERMINAL_CURSOR_STYLE, value);
+}
+
 export async function setTerminalFontFamily(value: string): Promise<void> {
   await writePref(KEY_TERMINAL_FONT_FAMILY, value.trim());
 }
@@ -543,6 +580,23 @@ export async function setAgentNotifications(value: boolean): Promise<void> {
   await writePref(KEY_AGENT_NOTIFICATIONS, value);
 }
 
+export async function setWebSearchEnabled(value: boolean): Promise<void> {
+  await writePref(KEY_WEB_SEARCH_ENABLED, value);
+}
+
+export async function setWebSearchProvider(value: WebSearchProviderId): Promise<void> {
+  await writePref(KEY_WEB_SEARCH_PROVIDER, value);
+}
+
+export async function setWebSearchMaxResults(value: number): Promise<void> {
+  const clamped = Number.isFinite(value) ? Math.min(20, Math.max(1, Math.round(value))) : 5;
+  await writePref(KEY_WEB_SEARCH_MAX_RESULTS, clamped);
+}
+
+export async function setWebSearchHost(value: string): Promise<void> {
+  await writePref(KEY_WEB_SEARCH_HOST, value.trim());
+}
+
 export async function setShortcuts(
   value: Record<ShortcutId, KeyBinding[]> | {},
 ): Promise<void> {
@@ -591,6 +645,7 @@ export async function onPreferencesChange(
     [KEY_SHOW_HIDDEN]: "showHidden",
     [KEY_TERMINAL_WEBGL_ENABLED]: "terminalWebglEnabled",
     [KEY_TERMINAL_CURSOR_BLINK]: "terminalCursorBlink",
+    [KEY_TERMINAL_CURSOR_STYLE]: "terminalCursorStyle",
     [KEY_TERMINAL_FONT_FAMILY]: "terminalFontFamily",
     [KEY_TERMINAL_LETTER_SPACING]: "terminalLetterSpacing",
     [KEY_TERMINAL_FONT_SIZE]: "terminalFontSize",
@@ -601,6 +656,10 @@ export async function onPreferencesChange(
     [KEY_SHORTCUTS]: "shortcuts",
     [KEY_EDITOR_AUTO_SAVE]: "editorAutoSave",
     [KEY_EDITOR_AUTO_SAVE_DELAY]: "editorAutoSaveDelay",
+    [KEY_WEB_SEARCH_ENABLED]: "webSearchEnabled",
+    [KEY_WEB_SEARCH_PROVIDER]: "webSearchProvider",
+    [KEY_WEB_SEARCH_MAX_RESULTS]: "webSearchMaxResults",
+    [KEY_WEB_SEARCH_HOST]: "webSearchHost",
   };
   // Same-process writes still fire onChange immediately; cross-window writes
   // arrive via the Tauri event emitted by writePref().

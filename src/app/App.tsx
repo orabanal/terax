@@ -16,6 +16,7 @@ import {
   useAiBootstrap,
   useAiLiveBridge,
   useChatStore,
+  type SessionScope,
 } from "@/modules/ai";
 import { AiComposerProvider } from "@/modules/ai/lib/composer";
 import { native } from "@/modules/ai/lib/native";
@@ -207,6 +208,40 @@ export default function App() {
   const isTerminalTab = activeTab?.kind === "terminal";
   const isEditorTab = activeTab?.kind === "editor";
   const isGitHistoryTab = activeTab?.kind === "git-history";
+  const activeByScope = useChatStore((s) => s.activeByScope);
+  const aiSessions = useChatStore((s) => s.sessions);
+  const activeAiScope = useMemo<SessionScope | null>(() => {
+    if (!activeTab) return null;
+    if (activeTab.kind === "terminal") {
+      return activeLeafId != null
+        ? { type: "terminal", targetId: String(activeLeafId) }
+        : null;
+    }
+    return activeId != null
+      ? { type: "workspace", targetId: String(activeId) }
+      : null;
+  }, [activeTab, activeId, activeLeafId]);
+  const openAiScopeKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const tab of tabs) {
+      if (tab.kind === "terminal") {
+        for (const leafId of leafIds(tab.paneTree)) {
+          keys.add(`terminal:${leafId}`);
+        }
+      } else {
+        keys.add(`workspace:${tab.id}`);
+      }
+    }
+    return keys;
+  }, [tabs]);
+  const aiBridgeSessionIds = useMemo(() => {
+    const validIds = new Set(aiSessions.map((s) => s.id));
+    const ids = new Set<string>();
+    for (const [key, id] of Object.entries(activeByScope)) {
+      if (openAiScopeKeys.has(key) && validIds.has(id)) ids.add(id);
+    }
+    return Array.from(ids);
+  }, [activeByScope, aiSessions, openAiScopeKeys]);
 
   useEditorFileSync({ tabs, tabsRef, editorRefs });
   useThemeFileEditing({ tabsRef, openFileTab });
@@ -355,7 +390,7 @@ export default function App() {
       const tabId = newTab(path);
       setTimeout(() => {
         const tab = tabsRef.current.find((x) => x.id === tabId);
-        if (!tab || tab.kind !== "terminal") return;
+        if (tab?.kind !== "terminal") return;
         const t = terminalRefs.current.get(tab.activeLeafId);
         if (!t) return;
         t.write(`cd ${quoteShellArg(path)}\r`);
@@ -457,7 +492,7 @@ export default function App() {
   const splitActivePaneInActiveTab = useCallback(
     (dir: "row" | "col") => {
       const t = tabsRef.current.find((x) => x.id === activeId);
-      if (!t || t.kind !== "terminal") return;
+      if (t?.kind !== "terminal") return;
       splitActivePane(activeId, dir);
     },
     [activeId, splitActivePane],
@@ -625,7 +660,7 @@ export default function App() {
       const tab = all.find(
         (t) => t.kind === "terminal" && hasLeaf(t.paneTree, leafId),
       );
-      if (!tab || tab.kind !== "terminal") return;
+      if (tab?.kind !== "terminal") return;
       const isLast =
         leafIds(tab.paneTree).length === 1 &&
         all.filter((t) => t.kind === "terminal").length === 1;
@@ -853,8 +888,8 @@ export default function App() {
                     open={aiSidebarOpen}
                     onToggle={toggleAiSidebar}
                     hasComposer={hasComposer}
-                    scopeType={activeTab?.kind === "terminal" ? "terminal" : "workspace"}
-                    scopeTargetId={activeTab?.kind === "terminal" ? (activeLeafId != null ? String(activeLeafId) : null) : (activeId != null ? String(activeId) : null)}
+                    scopeType={activeAiScope?.type ?? "workspace"}
+                    scopeTargetId={activeAiScope?.targetId ?? null}
                   />
                 </div>
               </ResizablePanel>
@@ -885,6 +920,7 @@ export default function App() {
           {hasComposer ? (
             <>
               <AgentRunBridge
+                sessionIds={aiBridgeSessionIds}
                 openAiDiffTab={openAiDiffTab}
                 closeAiDiffTab={closeAiDiffTab}
               />

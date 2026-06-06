@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import type { ThemePref } from "@/modules/settings/store";
+import type { ThemePref, TerminalCursorStyle } from "@/modules/settings/store";
 import {
   TERMINAL_FONT_SIZES,
   TERMINAL_SCROLLBACK_PRESETS,
@@ -30,6 +30,7 @@ import {
   setTerminalLetterSpacing,
   setTerminalFontSize,
   setTerminalCursorBlink,
+  setTerminalCursorStyle,
   setTerminalScrollback,
   setTerminalWebglEnabled,
   setVimMode,
@@ -79,6 +80,9 @@ export function GeneralSection() {
   );
   const terminalCursorBlink = usePreferencesStore(
     (s) => s.terminalCursorBlink,
+  );
+  const terminalCursorStyle = usePreferencesStore(
+    (s) => s.terminalCursorStyle,
   );
   const terminalFontFamily = usePreferencesStore((s) => s.terminalFontFamily);
   const terminalLetterSpacing = usePreferencesStore(
@@ -254,6 +258,24 @@ export function GeneralSection() {
             checked={terminalCursorBlink}
             onCheckedChange={(v) => void setTerminalCursorBlink(v)}
           />
+        </SettingRow>
+        <SettingRow
+          title="Cursor style"
+          description="Shape of the terminal cursor."
+        >
+          <Select
+            value={terminalCursorStyle ?? "bar"}
+            onValueChange={(v) => void setTerminalCursorStyle(v as TerminalCursorStyle)}
+          >
+            <SelectTrigger size="sm" className="h-8 w-32 text-[12px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="bar" className="text-[12px]">Barra</SelectItem>
+              <SelectItem value="block" className="text-[12px]">Bloque</SelectItem>
+              <SelectItem value="underline" className="text-[12px]">Subguion</SelectItem>
+            </SelectContent>
+          </Select>
         </SettingRow>
         <SettingRow
           title="Font family"

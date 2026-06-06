@@ -6,6 +6,9 @@ export type SettingsTab =
   | "shortcuts"
   | "models"
   | "agents"
+  | "websearch"
+  | "mcp"
+  | "skills"
   | "ssh"
   | "about";
 

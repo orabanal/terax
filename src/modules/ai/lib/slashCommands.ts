@@ -4,6 +4,8 @@ import {
   SparklesIcon,
 } from "@hugeicons/core-free-icons";
 import { usePlanStore } from "../store/planStore";
+import type { Skill } from "./skills";
+import { expandSkillTemplate } from "./skills";
 
 /**
  * Outcome of intercepting a slash command from the composer.
@@ -76,7 +78,10 @@ export function wrapWithCommandMarker(prompt: string, name: string): string {
   return `<terax-command name="${name}" />\n\n${prompt}`;
 }
 
-export function tryRunSlashCommand(input: string): SlashOutcome {
+export function tryRunSlashCommand(
+  input: string,
+  skills?: Skill[],
+): SlashOutcome {
   const trimmed = input.trim();
   const lead = trimmed[0];
   if (lead !== "/" && lead !== "#") return { kind: "none" };
@@ -115,7 +120,34 @@ export function tryRunSlashCommand(input: string): SlashOutcome {
         commandName: "claude-code",
       };
     }
-    default:
+    default: {
+      if (lead === "/" && skills) {
+        const skill = skills.find((s) => s.name === head);
+        if (skill) {
+          return {
+            kind: "send-prompt",
+            prompt: expandSkillTemplate(skill.prompt, tail || undefined),
+            commandName: head,
+          };
+        }
+      }
       return { kind: "none" };
+    }
   }
+}
+
+export type SkillCompletion = {
+  name: string;
+  description: string;
+};
+
+export function getSkillCompletions(
+  input: string,
+  skills: Skill[],
+): SkillCompletion[] {
+  if (!input.startsWith("/")) return [];
+  const query = input.slice(1).toLowerCase();
+  return skills
+    .filter((s) => s.name.startsWith(query))
+    .map((s) => ({ name: s.name, description: s.description }));
 }
