@@ -7,7 +7,9 @@ import {
   CodeIcon,
   HashtagIcon,
   Key01Icon,
+  Shield01Icon,
   TerminalIcon,
+  ZapIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -16,7 +18,7 @@ import { useWorkspaceFiles } from "../hooks/useWorkspaceFiles";
 import { useComposer, type FileAttachment } from "../lib/composer";
 import { SLASH_COMMANDS } from "../lib/slashCommands";
 import type { Snippet } from "../lib/snippets";
-import { useChatStore } from "../store/chatStore";
+import { useChatStore, type PermissionMode } from "../store/chatStore";
 import { useSnippetsStore } from "../store/snippetsStore";
 import { AgentSwitcher } from "./AgentSwitcher";
 import { FilePickerContent } from "./FilePicker";
@@ -295,7 +297,10 @@ export function AiInputBar() {
                   "placeholder:text-muted-foreground/60",
                 )}
               />
-              <AgentSwitcher />
+              <div className="flex items-center gap-1">
+                <PermissionChip />
+                <AgentSwitcher />
+              </div>
             </div>
           </PopoverAnchor>
           {fileTrigger ? (
@@ -475,5 +480,40 @@ export function AiInputBarConnect({ onAdd }: { onAdd: () => void }) {
         </Button>
       </div>
     </div>
+  );
+}
+
+const PERMISSION_MODES: {
+  mode: PermissionMode;
+  label: string;
+  icon: typeof Shield01Icon;
+}[] = [
+  { mode: "observer", label: "Observer", icon: Shield01Icon },
+  { mode: "confirm", label: "Confirm", icon: Shield01Icon },
+  { mode: "autonomous", label: "Autonomous", icon: ZapIcon },
+];
+
+function PermissionChip() {
+  const mode = useChatStore((s) => s.permissionMode);
+  const setMode = useChatStore((s) => s.setPermissionMode);
+
+  const current = PERMISSION_MODES.find((m) => m.mode === mode) ?? PERMISSION_MODES[1];
+  const nextIndex = (PERMISSION_MODES.indexOf(current) + 1) % PERMISSION_MODES.length;
+
+  return (
+    <button
+      type="button"
+      onClick={() => setMode(PERMISSION_MODES[nextIndex].mode)}
+      className={cn(
+        "flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-colors",
+        mode === "observer" && "bg-blue-500/15 text-blue-400",
+        mode === "confirm" && "bg-amber-500/15 text-amber-400",
+        mode === "autonomous" && "bg-green-500/15 text-green-400",
+      )}
+      title={`Permission: ${current.label}. Click to switch.`}
+    >
+      <HugeiconsIcon icon={current.icon} size={10} strokeWidth={2} />
+      {current.label}
+    </button>
   );
 }

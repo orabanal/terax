@@ -1,3 +1,5 @@
+export type PermissionMode = "observer" | "confirm" | "autonomous";
+
 export type ToolContext = {
   /** Active terminal tab cwd, used to resolve relative paths. Null = home. */
   getCwd: () => string | null;
@@ -20,6 +22,10 @@ export type ToolContext = {
   readCache: Map<string, { size: number; hash: number }>;
   /** Active chat session id — used by tools that persist per-session state (todos). */
   getSessionId: () => string | null;
+  /** Current permission mode for command execution. */
+  getPermissionMode: () => PermissionMode;
+  /** User-configured command blocklist (regex patterns). */
+  getCommandBlocklist: () => string[];
 };
 
 export function resolvePath(rawPath: string, cwd: string | null): string {

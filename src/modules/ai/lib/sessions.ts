@@ -1,9 +1,17 @@
 import type { UIMessage } from "@ai-sdk/react";
 import { LazyStore } from "@tauri-apps/plugin-store";
 
+export type SessionScopeType = "terminal" | "workspace";
+
+export type SessionScope = {
+  type: SessionScopeType;
+  targetId: string;
+};
+
 export type SessionMeta = {
   id: string;
   title: string;
+  scope?: SessionScope;
   createdAt: number;
   updatedAt: number;
 };
@@ -11,6 +19,7 @@ export type SessionMeta = {
 const STORE_PATH = "terax-ai-sessions.json";
 const KEY_SESSIONS = "sessions";
 const KEY_ACTIVE = "activeId";
+const KEY_ACTIVE_BY_SCOPE = "activeByScope";
 const messagesKey = (id: string) => `messages:${id}`;
 
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
@@ -18,20 +27,28 @@ const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
 export type LoadedSessions = {
   sessions: SessionMeta[];
   activeId: string | null;
+  activeByScope: Record<string, string>;
 };
 
+export function scopeKey(scope: SessionScope): string {
+  return `${scope.type}:${scope.targetId}`;
+}
+
 export async function loadAll(): Promise<LoadedSessions> {
-  // One IPC roundtrip via entries() rather than two parallel get()s. Per-
-  // session messages are loaded lazily via `loadMessages` only when a
-  // session is opened, so cold boot stays at a single store call.
   const entries = await store.entries();
   let sessions: SessionMeta[] | undefined;
   let activeId: string | null | undefined;
+  let activeByScope: Record<string, string> | undefined;
   for (const [k, v] of entries) {
     if (k === KEY_SESSIONS) sessions = v as SessionMeta[];
     else if (k === KEY_ACTIVE) activeId = v as string | null;
+    else if (k === KEY_ACTIVE_BY_SCOPE) activeByScope = v as Record<string, string>;
   }
-  return { sessions: sessions ?? [], activeId: activeId ?? null };
+  return {
+    sessions: sessions ?? [],
+    activeId: activeId ?? null,
+    activeByScope: activeByScope ?? {},
+  };
 }
 
 export async function loadMessages(id: string): Promise<UIMessage[] | null> {
@@ -44,6 +61,10 @@ export async function saveSessionsList(sessions: SessionMeta[]): Promise<void> {
 
 export async function saveActiveId(id: string | null): Promise<void> {
   await store.set(KEY_ACTIVE, id);
+}
+
+export async function saveActiveByScope(map: Record<string, string>): Promise<void> {
+  await store.set(KEY_ACTIVE_BY_SCOPE, map);
 }
 
 export async function saveMessages(

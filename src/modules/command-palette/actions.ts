@@ -65,7 +65,7 @@ export type CommandPaletteActionContext = {
   focusExplorerSearch: () => void;
   toggleSidebar: () => void;
   toggleAi: () => void;
-  askAiSelection: () => void;
+  askAiSelection?: () => void;
   openSettings: () => void;
   openShortcuts: () => void;
 };
@@ -270,7 +270,7 @@ export function createCommandPaletteActions(
       keywords: ["selection", "explain", "assistant", "chat"],
       icon: SparklesIcon,
       shortcutId: "ai.askSelection",
-      run: ctx.askAiSelection,
+      run: ctx.askAiSelection ?? (() => {}),
     },
   ];
 }

@@ -56,6 +56,7 @@ pub struct SshOpenOptions {
     pub rows: u16,
     pub connect_timeout: Option<u64>,
     pub keep_alive_interval: Option<u64>,
+    pub keep_alive_max: Option<u64>,
 }
 
 #[tauri::command]
@@ -84,7 +85,8 @@ pub async fn ssh_open(
     .ok_or_else(|| format!("No addresses found for '{}'", opts.host))?;
 
     let config = Arc::new(Config {
-        inactivity_timeout: opts.keep_alive_interval.map(Duration::from_secs),
+        keepalive_interval: opts.keep_alive_interval.map(Duration::from_secs),
+        keepalive_max: opts.keep_alive_max.unwrap_or(3) as usize,
         nodelay: true,
         ..<_>::default()
     });

@@ -51,6 +51,7 @@ export type SshHost = {
   keyPath?: string;
   initialCommand?: string;
   keepAliveInterval?: number;
+  keepAliveMax?: number;
   connectTimeout?: number;
   strictHostKeyChecking?: "yes" | "no" | "accept-new";
   compression?: boolean;

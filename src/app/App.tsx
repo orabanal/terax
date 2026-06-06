@@ -6,21 +6,16 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { getLaunchDir } from "@/lib/launchDir";
-import { usePresence } from "@/lib/usePresence";
 import { quoteShellArg } from "@/lib/shellQuote";
 import { useZoom } from "@/lib/useZoom";
 import { AgentNotificationsBridge } from "@/modules/agents";
 import {
   AgentRunBridge,
-  AiInputBar,
-  AiInputBarConnect,
-  AiMiniWindow,
+  AiSidebar,
   LocalAgentNotificationsBridge,
-  SelectionAskAi,
   useAiBootstrap,
   useAiLiveBridge,
   useChatStore,
-  useSelectionAskAi,
 } from "@/modules/ai";
 import { AiComposerProvider } from "@/modules/ai/lib/composer";
 import { native } from "@/modules/ai/lib/native";
@@ -184,16 +179,29 @@ export default function App() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [newEditorOpen, setNewEditorOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const miniOpen = useChatStore((s) => s.mini.open);
-  const miniPresence = usePresence(miniOpen, 200);
-  const openMini = useChatStore((s) => s.openMini);
-  const focusInput = useChatStore((s) => s.focusInput);
-  const openPanel = useChatStore((s) => s.openPanel);
-  const panelOpen = useChatStore((s) => s.panelOpen);
   const setLive = useChatStore((s) => s.setLive);
   const respondToApproval = useChatStore((s) => s.respondToApproval);
 
-  const { hasComposer, keysLoaded } = useAiBootstrap();
+  // Per-tab AI sidebar open state
+  const aiSidebarOpenRef = useRef<Map<number, boolean>>(new Map());
+  const [, setAiSidebarOpenVersion] = useState(0);
+  const aiSidebarOpen = aiSidebarOpenRef.current.get(activeId) ?? false;
+
+  const toggleAiSidebar = useCallback(() => {
+    const map = aiSidebarOpenRef.current;
+    const current = map.get(activeId) ?? false;
+    map.set(activeId, !current);
+    setAiSidebarOpenVersion((v) => v + 1);
+  }, [activeId]);
+
+  const openAiSidebar = useCallback(() => {
+    if (!(aiSidebarOpenRef.current.get(activeId) ?? false)) {
+      aiSidebarOpenRef.current.set(activeId, true);
+      setAiSidebarOpenVersion((v) => v + 1);
+    }
+  }, [activeId]);
+
+  const { hasComposer } = useAiBootstrap();
 
   const activeTab = tabs.find((t) => t.id === activeId);
   const isTerminalTab = activeTab?.kind === "terminal";
@@ -281,33 +289,13 @@ export default function App() {
     [tabs, activeId, setActiveId],
   );
 
-  const captureActiveSelection = useCallback((): string | null => {
-    const t = tabs.find((x) => x.id === activeId);
-    if (!t) return null;
-    if (t.kind === "terminal") {
-      const lid = t.activeLeafId;
-      return terminalRefs.current.get(lid)?.getSelection() ?? null;
-    }
-    if (t.kind === "editor") {
-      return editorRefs.current.get(activeId)?.getSelection() ?? null;
-    }
-    return null;
-  }, [tabs, activeId]);
-
   const togglePanelAndFocus = useCallback(() => {
     if (!hasComposer) {
       void openSettingsWindow("models");
       return;
     }
-    if (panelOpen) {
-      useChatStore.getState().closePanel();
-    } else {
-      openPanel();
-      focusInput(null);
-    }
-  }, [hasComposer, panelOpen, openPanel, focusInput]);
-
-  const attachSelection = useChatStore((s) => s.attachSelection);
+    toggleAiSidebar();
+  }, [hasComposer, toggleAiSidebar]);
 
   const handleAttachFileToAgent = useCallback(
     (path: string) => {
@@ -315,43 +303,13 @@ export default function App() {
         void openSettingsWindow("models");
         return;
       }
-      // Dispatch a window event the composer listens for. Same pattern as
-      // selections — keeps file-explorer decoupled from the AI module.
       window.dispatchEvent(
         new CustomEvent<string>("terax:ai-attach-file", { detail: path }),
       );
-      openPanel();
-      focusInput(null);
+      openAiSidebar();
     },
-    [hasComposer, openPanel, focusInput],
+    [hasComposer, openAiSidebar],
   );
-
-  const askFromSelection = useCallback(() => {
-    if (!hasComposer) {
-      void openSettingsWindow("models");
-      return;
-    }
-    const selection = captureActiveSelection();
-    if (!selection || !selection.trim()) {
-      focusInput(null);
-      return;
-    }
-    const source: "terminal" | "editor" =
-      activeTab?.kind === "editor" ? "editor" : "terminal";
-    attachSelection(selection, source);
-  }, [
-    hasComposer,
-    captureActiveSelection,
-    focusInput,
-    attachSelection,
-    activeTab,
-  ]);
-
-  const { askPopup, setAskPopup, onAskFromSelection } = useSelectionAskAi({
-    captureActiveSelection,
-    askFromSelection,
-  });
-  const askPresence = usePresence(Boolean(askPopup), 120);
 
   const openNewTab = useCallback(() => {
     newTab(inheritedCwdForNewTab());
@@ -537,7 +495,6 @@ export default function App() {
       },
       "search.focus": () => searchInlineRef.current?.focus(),
       "ai.toggle": togglePanelAndFocus,
-      "ai.askSelection": askFromSelection,
       "shortcuts.open": () => setShortcutsOpen((v) => !v),
       "settings.open": () => void openSettingsWindow(),
       "sidebar.toggle": toggleSidebar,
@@ -561,7 +518,6 @@ export default function App() {
       focusNextPaneInTab,
       toggleSourceControl,
       togglePanelAndFocus,
-      askFromSelection,
       toggleSidebar,
       toggleExplorerFocus,
       zoomIn,
@@ -574,16 +530,6 @@ export default function App() {
     (id: ShortcutId, e: KeyboardEvent) => {
       if (id === "editor.undo" || id === "editor.redo") {
         return activeTab?.kind !== "editor";
-      }
-      if (id === "ai.askSelection") {
-        const target =
-          (e.target as HTMLElement | null) ?? document.activeElement;
-        const inTerminal = !!(target as HTMLElement | null)?.closest?.(
-          ".xterm",
-        );
-        if (!inTerminal) return false;
-        const sel = captureActiveSelection();
-        return !sel || !sel.trim();
       }
       if (id === "terminal.clear") {
         // Only intercept ⌘K while a terminal is focused; elsewhere let the key
@@ -670,9 +616,8 @@ export default function App() {
   );
 
   const onActivateLocalAgent = useCallback(() => {
-    openPanel();
-    focusInput(null);
-  }, [openPanel, focusInput]);
+    openAiSidebar();
+  }, [openAiSidebar]);
 
   const handleLeafExit = useCallback(
     (leafId: number, _code: number) => {
@@ -757,7 +702,6 @@ export default function App() {
             focusExplorerSearch: () => explorerRef.current?.focusSearch(),
             toggleSidebar,
             toggleAi: togglePanelAndFocus,
-            askAiSelection: askFromSelection,
             openSettings: () => void openSettingsWindow(),
             openShortcuts: () => setShortcutsOpen(true),
           })
@@ -778,7 +722,6 @@ export default function App() {
       focusNextPaneInTab,
       toggleSidebar,
       togglePanelAndFocus,
-      askFromSelection,
     ],
   );
 
@@ -879,7 +822,8 @@ export default function App() {
               </ResizablePanel>
               <ResizableHandle withHandle />
               <ResizablePanel id="workspace" defaultSize="78%" minSize="30%">
-                <div className="flex h-full min-h-0 flex-col">
+                <div className="flex h-full min-h-0">
+                  <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                   <div className="relative min-h-0 flex-1">
                     <WorkspaceSurface
                       tabs={tabs}
@@ -904,25 +848,14 @@ export default function App() {
                       onGitHistorySearchHandle={setGitHistoryHandle}
                     />
                   </div>
-
-                  {keysLoaded ? (
-                    <div
-                      data-ai-input-bar
-                      data-state={panelOpen ? "open" : "closed"}
-                      className="terax-reveal"
-                      aria-hidden={!panelOpen}
-                    >
-                      <div>
-                        {hasComposer ? (
-                          <AiInputBar />
-                        ) : (
-                          <AiInputBarConnect
-                            onAdd={() => void openSettingsWindow("models")}
-                          />
-                        )}
-                      </div>
-                    </div>
-                  ) : null}
+                </div>
+                  <AiSidebar
+                    open={aiSidebarOpen}
+                    onToggle={toggleAiSidebar}
+                    hasComposer={hasComposer}
+                    scopeType={activeTab?.kind === "terminal" ? "terminal" : "workspace"}
+                    scopeTargetId={activeTab?.kind === "terminal" ? (activeLeafId != null ? String(activeLeafId) : null) : (activeId != null ? String(activeId) : null)}
+                  />
                 </div>
               </ResizablePanel>
             </ResizablePanelGroup>
@@ -935,8 +868,7 @@ export default function App() {
               home={home}
               onCd={sendCd}
               onWorkspaceChange={switchWorkspace}
-              onOpenMini={openMini}
-              hasComposer={hasComposer}
+              onOpenMini={togglePanelAndFocus}
               privateActive={
                 activeTab?.kind === "terminal" && activeTab.private === true
               }
@@ -958,19 +890,6 @@ export default function App() {
               />
               <LocalAgentNotificationsBridge />
             </>
-          ) : null}
-
-          {hasComposer && miniPresence.mounted ? (
-            <AiMiniWindow state={miniPresence.state} />
-          ) : null}
-          {askPresence.mounted ? (
-            <SelectionAskAi
-              state={askPresence.state}
-              x={askPopup?.x ?? 0}
-              y={askPopup?.y ?? 0}
-              onAsk={onAskFromSelection}
-              onDismiss={() => setAskPopup(null)}
-            />
           ) : null}
 
           <CommandPalette

@@ -18,12 +18,18 @@ import {
   loadAll,
   loadMessages,
   newSessionId,
+  saveActiveByScope,
   saveActiveId,
   saveMessages,
   saveSessionsList,
+  scopeKey,
   type SessionMeta,
+  type SessionScope,
 } from "../lib/sessions";
 import { pushRecentModel } from "../lib/modelPrefs";
+import type { PermissionMode } from "../tools/context";
+
+export type { PermissionMode };
 
 export type Live = {
   getCwd: () => string | null;
@@ -115,6 +121,12 @@ type StoreState = {
   selectedModelId: string;
   setSelectedModelId: (id: string) => void;
 
+  permissionMode: PermissionMode;
+  setPermissionMode: (mode: PermissionMode) => void;
+
+  commandBlocklist: string[];
+  setCommandBlocklist: (patterns: string[]) => void;
+
   mini: MiniState;
   openMini: () => void;
   closeMini: () => void;
@@ -142,9 +154,11 @@ type StoreState = {
   sessionsHydrated: boolean;
   sessions: SessionMeta[];
   activeSessionId: string | null;
+  activeByScope: Record<string, string>;
   hydrateSessions: () => Promise<void>;
-  newSession: () => string;
+  newSession: (scope?: SessionScope) => string;
   switchSession: (id: string) => void;
+  getActiveSessionForScope: (scope: SessionScope) => string | null;
   deleteSession: (id: string) => void;
   renameSession: (id: string, title: string) => void;
   /** Persist messages of a session and bump its updatedAt + auto-title. */
@@ -234,6 +248,12 @@ export const useChatStore = create<StoreState>((set, get) => ({
     void pushRecentModel(id);
   },
 
+  permissionMode: "confirm",
+  setPermissionMode: (mode) => set({ permissionMode: mode }),
+
+  commandBlocklist: [],
+  setCommandBlocklist: (patterns) => set({ commandBlocklist: patterns }),
+
   mini: { open: false },
   openMini: () => set({ mini: { open: true } }),
   closeMini: () => set({ mini: { open: false } }),
@@ -283,14 +303,12 @@ export const useChatStore = create<StoreState>((set, get) => ({
   sessionsHydrated: false,
   sessions: [],
   activeSessionId: null,
+  activeByScope: {},
 
   hydrateSessions: async () => {
     if (get().sessionsHydrated) return;
-    const { sessions } = await loadAll();
+    const { sessions, activeByScope } = await loadAll();
 
-    // Reuse the most recent untitled "New chat" session if one exists from
-    // the previous run — no point stacking empty placeholder sessions every
-    // launch. Otherwise prepend a fresh one.
     const reusable = sessions[0]?.title === "New chat" ? sessions[0] : null;
     let nextSessions: SessionMeta[];
     let freshId: string;
@@ -313,20 +331,27 @@ export const useChatStore = create<StoreState>((set, get) => ({
     set({
       sessions: nextSessions,
       activeSessionId: freshId,
+      activeByScope,
       sessionsHydrated: true,
     });
   },
 
-  newSession: () => {
+  newSession: (scope?: SessionScope) => {
     const id = newSessionId();
     const meta: SessionMeta = {
       id,
       title: "New chat",
+      scope,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
     const next = [meta, ...get().sessions];
-    set({ sessions: next, activeSessionId: id, agentMeta: IDLE_META });
+    const scopeUpdate: Record<string, string> = { ...get().activeByScope };
+    if (scope) {
+      scopeUpdate[scopeKey(scope)] = id;
+      void saveActiveByScope(scopeUpdate);
+    }
+    set({ sessions: next, activeSessionId: id, activeByScope: scopeUpdate, agentMeta: IDLE_META });
     void saveSessionsList(next);
     void saveActiveId(id);
     return id;
@@ -336,8 +361,6 @@ export const useChatStore = create<StoreState>((set, get) => ({
     if (get().activeSessionId === id) return;
     if (!get().sessions.some((s) => s.id === id)) return;
 
-    // Lazily seed the chat with persisted messages the first time we open
-    // this session. Subsequent switches reuse the cached Chat instance.
     const flip = () => {
       set({ activeSessionId: id, agentMeta: IDLE_META });
       void saveActiveId(id);
@@ -350,6 +373,15 @@ export const useChatStore = create<StoreState>((set, get) => ({
       if (m && m.length > 0 && !chats.has(id)) seedMessages.set(id, m);
       flip();
     });
+  },
+
+  getActiveSessionForScope: (scope: SessionScope) => {
+    const key = scopeKey(scope);
+    const sessionId = get().activeByScope[key];
+    if (sessionId && get().sessions.some((s) => s.id === sessionId)) {
+      return sessionId;
+    }
+    return null;
   },
 
   deleteSession: (id) => {

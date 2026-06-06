@@ -1,13 +1,9 @@
 export {
   AgentRunBridge,
-  AiInputBar,
-  AiInputBarConnect,
-  AiMiniWindow,
-  SelectionAskAi,
+  AiSidebar,
 } from "./components/lazy";
 export { AgentStatusPill } from "./components/AgentStatusPill";
 export { useAiBootstrap } from "./hooks/useAiBootstrap";
-export { useSelectionAskAi } from "./hooks/useSelectionAskAi";
 export { useAiLiveBridge } from "./lib/useAiLiveBridge";
 export { LocalAgentNotificationsBridge } from "./components/LocalAgentNotificationsBridge";
 export {
@@ -21,6 +17,7 @@ export {
   type ProviderKeys,
   type CustomEndpointKeys,
 } from "./lib/keyring";
+export type { SessionScope, SessionScopeType } from "./lib/sessions";
 export {
   getActiveProviderKey,
   hasKeyForModel,

@@ -1,7 +1,8 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { native } from "../lib/native";
-import { checkShellCommand } from "../lib/security";
+import { checkShellCommand, checkCommandBlocklist } from "../lib/security";
+import { reserveSessionSlot } from "../lib/executionQueue";
 import type { ToolContext } from "./context";
 import { currentWorkspaceEnv, workspaceScopeKey } from "@/modules/workspace";
 
@@ -40,9 +41,16 @@ export function buildShellTools(ctx: ToolContext) {
       execute: async ({ command, timeout_secs }) => {
         const safety = checkShellCommand(command);
         if (!safety.ok) return { error: safety.reason };
+        const blocklist = checkCommandBlocklist(command, ctx.getCommandBlocklist());
+        if (!blocklist.ok) return { error: blocklist.reason };
+        if (ctx.getPermissionMode() === "observer") {
+          return { error: "Commands are blocked in observer mode. Switch to confirm or autonomous mode." };
+        }
         const sid = ctx.getSessionId();
         if (!sid) return { error: "no active chat session" };
+        const slot = reserveSessionSlot(sid);
         try {
+          await slot.ready;
           const cwd = ctx.getCwd();
           const shellId = await getSessionShell(workspaceSessionKey(sid), cwd);
           const r = await native.shellSessionRun(
@@ -62,6 +70,8 @@ export function buildShellTools(ctx: ToolContext) {
           };
         } catch (e) {
           return { error: String(e) };
+        } finally {
+          slot.release();
         }
       },
     }),
@@ -77,6 +87,11 @@ export function buildShellTools(ctx: ToolContext) {
       execute: async ({ command, cwd }) => {
         const safety = checkShellCommand(command);
         if (!safety.ok) return { error: safety.reason };
+        const blocklist = checkCommandBlocklist(command, ctx.getCommandBlocklist());
+        if (!blocklist.ok) return { error: blocklist.reason };
+        if (ctx.getPermissionMode() === "observer") {
+          return { error: "Commands are blocked in observer mode. Switch to confirm or autonomous mode." };
+        }
         const effectiveCwd = cwd ?? ctx.getCwd();
         try {
           const handle = await native.shellBgSpawn(command, effectiveCwd);

@@ -27,6 +27,7 @@ type HostForm = {
   keyPath: string;
   initialCommand: string;
   keepAliveInterval: string;
+  keepAliveMax: string;
   connectTimeout: string;
   strictHostKeyChecking: string;
   compression: boolean;
@@ -42,6 +43,7 @@ const EMPTY_FORM: HostForm = {
   keyPath: "",
   initialCommand: "",
   keepAliveInterval: "",
+  keepAliveMax: "",
   connectTimeout: "",
   strictHostKeyChecking: "",
   compression: false,
@@ -58,6 +60,7 @@ function hostToForm(host: SshHost): HostForm {
     keyPath: host.keyPath ?? "",
     initialCommand: host.initialCommand ?? "",
     keepAliveInterval: host.keepAliveInterval != null ? String(host.keepAliveInterval) : "",
+    keepAliveMax: host.keepAliveMax != null ? String(host.keepAliveMax) : "",
     connectTimeout: host.connectTimeout != null ? String(host.connectTimeout) : "",
     strictHostKeyChecking: host.strictHostKeyChecking ?? "",
     compression: host.compression ?? false,
@@ -101,6 +104,7 @@ export function SshSection() {
 
   const save = async () => {
     const keepAlive = parseInt(form.keepAliveInterval, 10);
+    const keepMax = parseInt(form.keepAliveMax, 10);
     const timeout = parseInt(form.connectTimeout, 10);
     const data: Omit<SshHost, "id"> = {
       name: form.name,
@@ -111,6 +115,7 @@ export function SshSection() {
       keyPath: form.keyPath || undefined,
       initialCommand: form.initialCommand || undefined,
       keepAliveInterval: !isNaN(keepAlive) && keepAlive > 0 ? keepAlive : undefined,
+      keepAliveMax: !isNaN(keepMax) && keepMax > 0 ? keepMax : undefined,
       connectTimeout: !isNaN(timeout) && timeout > 0 ? timeout : undefined,
       strictHostKeyChecking: (form.strictHostKeyChecking as SshHost["strictHostKeyChecking"]) || undefined,
       compression: form.compression || undefined,
@@ -294,6 +299,16 @@ export function SshSection() {
                 value={form.keepAliveInterval}
                 onChange={(e) => setForm((f) => ({ ...f, keepAliveInterval: e.target.value }))}
                 placeholder="60"
+                className="h-8 text-sm"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Keepalive max retries</label>
+              <Input
+                type="number"
+                value={form.keepAliveMax}
+                onChange={(e) => setForm((f) => ({ ...f, keepAliveMax: e.target.value }))}
+                placeholder="3"
                 className="h-8 text-sm"
               />
             </div>

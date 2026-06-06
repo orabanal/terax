@@ -113,6 +113,7 @@ export async function openSshPty(
       rows,
       connectTimeout: host.connectTimeout ?? null,
       keepAliveInterval: host.keepAliveInterval ?? null,
+      keepAliveMax: host.keepAliveMax ?? null,
     },
     onData,
     onExit,

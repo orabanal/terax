@@ -1,28 +1,13 @@
-import type { PresenceState } from "@/lib/usePresence";
 import { lazy, Suspense } from "react";
 import type { AgentRunBridgeProps } from "./AgentRunBridge";
-import type { SelectionAskAiProps } from "./SelectionAskAi";
+import type { AiSidebarProps } from "./AiSidebar";
 
 const AgentRunBridgeInner = lazy(() =>
   import("./AgentRunBridge").then((m) => ({ default: m.AgentRunBridge })),
 );
 
-const AiMiniWindowInner = lazy(() =>
-  import("./AiMiniWindow").then((m) => ({ default: m.AiMiniWindow })),
-);
-
-const AiInputBarModule = () => import("./AiInputBar");
-
-const AiInputBarInner = lazy(() =>
-  AiInputBarModule().then((m) => ({ default: m.AiInputBar })),
-);
-
-const AiInputBarConnectInner = lazy(() =>
-  AiInputBarModule().then((m) => ({ default: m.AiInputBarConnect })),
-);
-
-const SelectionAskAiInner = lazy(() =>
-  import("./SelectionAskAi").then((m) => ({ default: m.SelectionAskAi })),
+const AiSidebarInner = lazy(() =>
+  import("./AiSidebar").then((m) => ({ default: m.AiSidebar })),
 );
 
 export function AgentRunBridge(props: AgentRunBridgeProps) {
@@ -33,34 +18,10 @@ export function AgentRunBridge(props: AgentRunBridgeProps) {
   );
 }
 
-export function AiMiniWindow({ state }: { state: PresenceState }) {
+export function AiSidebar(props: AiSidebarProps) {
   return (
     <Suspense fallback={null}>
-      <AiMiniWindowInner state={state} />
-    </Suspense>
-  );
-}
-
-export function AiInputBar() {
-  return (
-    <Suspense fallback={null}>
-      <AiInputBarInner />
-    </Suspense>
-  );
-}
-
-export function AiInputBarConnect({ onAdd }: { onAdd: () => void }) {
-  return (
-    <Suspense fallback={null}>
-      <AiInputBarConnectInner onAdd={onAdd} />
-    </Suspense>
-  );
-}
-
-export function SelectionAskAi(props: SelectionAskAiProps) {
-  return (
-    <Suspense fallback={null}>
-      <SelectionAskAiInner {...props} />
+      <AiSidebarInner {...props} />
     </Suspense>
   );
 }

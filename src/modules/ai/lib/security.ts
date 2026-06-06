@@ -400,3 +400,65 @@ export function checkShellCommand(cmd: string): SafetyResult {
   }
   return { ok: true };
 }
+
+/**
+ * Configurable command blocklist with ReDoS protection.
+ * Patterns are compiled once and cached.
+ */
+
+const compiledBlocklistCache = new Map<string, RegExp | null>();
+
+function isReDoSVulnerable(pattern: string): boolean {
+  return /(\([^)]*[+*][^)]*\))[+*]/.test(pattern) ||
+    /(\[[^\]]*[+*][^\]]*\])[+*]/.test(pattern);
+}
+
+function compilePattern(pattern: string): RegExp | null {
+  const cached = compiledBlocklistCache.get(pattern);
+  if (cached !== undefined) return cached;
+
+  if (isReDoSVulnerable(pattern)) {
+    compiledBlocklistCache.set(pattern, null);
+    return null;
+  }
+
+  try {
+    const re = new RegExp(pattern, "i");
+    compiledBlocklistCache.set(pattern, re);
+    return re;
+  } catch {
+    compiledBlocklistCache.set(pattern, null);
+    return null;
+  }
+}
+
+const DEFAULT_BLOCKLIST: string[] = [];
+
+/**
+ * Check a command against a configurable blocklist.
+ * @param cmd - The command to check
+ * @param blocklist - Array of regex patterns to block
+ * @param skipBlocklist - If true, skip blocklist check (e.g. for network device sessions)
+ */
+export function checkCommandBlocklist(
+  cmd: string,
+  blocklist: string[],
+  skipBlocklist = false,
+): SafetyResult {
+  if (skipBlocklist) return { ok: true };
+
+  const allPatterns = [...DEFAULT_BLOCKLIST, ...blocklist];
+  const c = cmd.trim();
+
+  for (const pattern of allPatterns) {
+    const re = compilePattern(pattern);
+    if (re && re.test(c)) {
+      return {
+        ok: false,
+        reason: `Refused: command matches blocklist pattern "${pattern}".`,
+      };
+    }
+  }
+
+  return { ok: true };
+}

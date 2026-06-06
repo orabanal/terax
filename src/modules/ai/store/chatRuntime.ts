@@ -35,6 +35,8 @@ function makeChat(sessionId: string): Chat<UIMessage> {
       useChatStore.getState().live.readLeafBuffer(leafId),
     readCache,
     getSessionId: () => sessionId,
+    getPermissionMode: () => useChatStore.getState().permissionMode,
+    getCommandBlocklist: () => useChatStore.getState().commandBlocklist,
   };
 
   const transport = createContextAwareTransport({
