@@ -6,5 +6,6 @@ pub mod proc;
 pub mod pty;
 pub mod secrets;
 pub mod shell;
+pub mod sftp;
 pub mod ssh;
 pub mod workspace;

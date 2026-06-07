@@ -3,7 +3,8 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useSshHostsStore } from "@/modules/ssh/store";
 import { SftpConflictDialog } from "./components/SftpConflictDialog";
 import { SftpDeleteDialog } from "./components/SftpDeleteDialog";
 import { SftpHostPicker } from "./components/SftpHostPicker";
@@ -11,33 +12,35 @@ import { SftpNameDialog } from "./components/SftpNameDialog";
 import { SftpPane } from "./components/SftpPane";
 import { SftpPermissionsDialog } from "./components/SftpPermissionsDialog";
 import { SftpTransferQueue } from "./components/SftpTransferQueue";
-import {
-  MOCK_HOSTS,
-  MOCK_REMOTE_ENTRIES,
-  MOCK_REMOTE_PATH,
-  MOCK_TRANSFERS,
-} from "./lib/mockData";
+import { MOCK_TRANSFERS } from "./lib/mockData";
 import type { SftpSide } from "./lib/types";
 import { useLocalDir } from "./lib/useLocalDir";
+import { useRemoteDir } from "./lib/useRemoteDir";
 
-/**
- * Milestone 2: the LOCAL pane navigates the real filesystem via `fs_read_dir`
- * (listing, enter/up/back/forward/home/refresh, breadcrumb, filter). The REMOTE
- * pane is still backed by static mock data until the SFTP backend lands.
- */
 export function SftpView({ now, home }: { now: number; home: string | null }) {
   const [focusedSide, setFocusedSide] = useState<SftpSide>("local");
-  // Remote starts "connected" so the populated pane is visible for review; the
-  // empty-state is reachable by toggling this once interactivity lands.
-  const [remoteConnected] = useState(true);
 
   const local = useLocalDir(home);
+  const remote = useRemoteDir();
+
+  const { hosts, init } = useSshHostsStore();
+  useEffect(() => {
+    void init();
+  }, [init]);
+
+  const handleHostSelect = useCallback(
+    (hostId: string) => {
+      const host = hosts.find((h) => h.id === hostId);
+      if (host) void remote.connect(host);
+    },
+    [hosts, remote.connect],
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-border/60 bg-background">
       <div className="flex h-8 shrink-0 items-center justify-between border-b border-border/60 bg-card px-2">
         <span className="text-xs font-medium text-foreground/80">SFTP</span>
-        <SftpHostPicker hosts={MOCK_HOSTS} />
+        <SftpHostPicker hosts={hosts} onSelect={handleHostSelect} />
       </div>
 
       <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
@@ -70,13 +73,26 @@ export function SftpView({ now, home }: { now: number; home: string | null }) {
         <ResizablePanel id="sftp-remote" defaultSize="50%" minSize="20%">
           <SftpPane
             side="remote"
-            title={remoteConnected ? MOCK_HOSTS[0].name : "Remote"}
-            path={MOCK_REMOTE_PATH}
-            entries={MOCK_REMOTE_ENTRIES}
+            title={remote.hostName ?? "Remote"}
+            path={remote.path}
+            entries={remote.entries}
             now={now}
-            connected={remoteConnected}
+            connected={remote.connected}
             focused={focusedSide === "remote"}
             onFocus={() => setFocusedSide("remote")}
+            status={remote.status}
+            error={remote.error}
+            onNavigate={remote.navigate}
+            onEnterDir={remote.enterDir}
+            onBack={remote.goBack}
+            onForward={remote.goForward}
+            onUp={remote.goUp}
+            onHome={remote.goHome}
+            onRefresh={remote.refresh}
+            canGoBack={remote.canGoBack}
+            canGoForward={remote.canGoForward}
+            showHidden={remote.showHidden}
+            onToggleHidden={remote.toggleHidden}
           />
         </ResizablePanel>
       </ResizablePanelGroup>
@@ -88,8 +104,6 @@ export function SftpView({ now, home }: { now: number; home: string | null }) {
   );
 }
 
-/** Dialogs are mounted closed; Milestone 1 keeps them inert but present so the
- *  set of modal surfaces is visible in the tree and reviewable. */
 function SftpDialogs({ now }: { now: number }) {
   const [noop] = useState(false);
   return (

@@ -48,6 +48,7 @@ tempfile = "3"
 notify = "8.2.0"
 russh = { version = "0.61", features = ["ring"] }
 russh-keys = "0.45"
+russh-sftp = "2.3"
 shellexpand = "3"
 
 [dev-dependencies]

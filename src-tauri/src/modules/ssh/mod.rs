@@ -30,7 +30,7 @@ struct SshSession {
     resize_tx: mpsc::Sender<(u32, u32)>,
 }
 
-struct ClientHandler;
+pub(crate) struct ClientHandler;
 
 impl client::Handler for ClientHandler {
     type Error = russh::Error;
@@ -59,19 +59,12 @@ pub struct SshOpenOptions {
     pub keep_alive_max: Option<u64>,
 }
 
-#[tauri::command]
-pub async fn ssh_open(
-    state: tauri::State<'_, SshState>,
-    opts: SshOpenOptions,
-    on_data: Channel<Response>,
-    on_exit: Channel<i32>,
-    on_status: Channel<String>,
-) -> Result<u32, String> {
-    let id = state.next_id.fetch_add(1, Ordering::Relaxed);
-
+/// Connect to an SSH server and authenticate. Returns the authenticated handle.
+/// Reusable by both SSH PTY sessions and SFTP sessions.
+pub(crate) async fn connect_and_auth(
+    opts: &SshOpenOptions,
+) -> Result<Handle<ClientHandler>, String> {
     let timeout_secs = opts.connect_timeout.unwrap_or(15);
-
-    let _ = on_status.send("Resolving host...".to_string());
 
     let addr_str = format!("{}:{}", opts.host, opts.port);
     let addr = tokio::time::timeout(
@@ -91,16 +84,12 @@ pub async fn ssh_open(
         ..<_>::default()
     });
 
-    let _ = on_status.send("TCP connecting...".to_string());
-
     let sh = ClientHandler;
     let mut session: Handle<ClientHandler> =
         tokio::time::timeout(Duration::from_secs(timeout_secs), client::connect(config, addr, sh))
             .await
             .map_err(|_| format!("Connection timed out after {}s", timeout_secs))?
             .map_err(|e| format!("TCP connect failed: {e}"))?;
-
-    let _ = on_status.send("Authenticating...".to_string());
 
     let auth_ok = if opts.auth_type == "key" {
         let key_path = opts
@@ -138,6 +127,25 @@ pub async fn ssh_open(
     if !auth_ok {
         return Err("Authentication failed — wrong username, password, or key.".to_string());
     }
+
+    Ok(session)
+}
+
+#[tauri::command]
+pub async fn ssh_open(
+    state: tauri::State<'_, SshState>,
+    opts: SshOpenOptions,
+    on_data: Channel<Response>,
+    on_exit: Channel<i32>,
+    on_status: Channel<String>,
+) -> Result<u32, String> {
+    let id = state.next_id.fetch_add(1, Ordering::Relaxed);
+
+    let _ = on_status.send("Resolving host...".to_string());
+    let _ = on_status.send("TCP connecting...".to_string());
+    let _ = on_status.send("Authenticating...".to_string());
+
+    let session = connect_and_auth(&opts).await?;
 
     let _ = on_status.send("Opening PTY channel...".to_string());
 

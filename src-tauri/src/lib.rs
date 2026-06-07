@@ -1,6 +1,6 @@
 pub mod modules;
 
-use modules::{agent, fs, git, net, pty, secrets, shell, ssh, workspace};
+use modules::{agent, fs, git, net, pty, secrets, shell, sftp, ssh, workspace};
 use std::sync::Mutex;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 #[cfg(target_os = "macos")]
@@ -157,6 +157,7 @@ pub fn run() {
         })
         .manage(pty::PtyState::default())
         .manage(ssh::SshState::default())
+        .manage(sftp::SftpState::default())
         .manage(shell::ShellState::default())
         .manage(secrets::SecretsState::default())
         .manage(fs::watch::FsWatchState::default())
@@ -237,6 +238,9 @@ pub fn run() {
             ssh::ssh_write,
             ssh::ssh_resize,
             ssh::ssh_close,
+            sftp::sftp_open,
+            sftp::sftp_list_dir,
+            sftp::sftp_close,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

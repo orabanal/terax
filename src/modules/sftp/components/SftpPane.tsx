@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -6,36 +7,39 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
+import { Plug01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { SftpEntry, SftpSide } from "../lib/types";
 import { SftpEmptyState } from "./SftpEmptyState";
 import { SftpFileRow } from "./SftpFileRow";
 import { SftpToolbar } from "./SftpToolbar";
-import type { SftpEntry, SftpSide } from "../lib/types";
 
 const ROW_HEIGHT = 28;
 const OVERSCAN = 8;
 
-/** Pixel distance the pointer must travel before a drag counts as a marquee
- *  rather than a click — avoids clearing selection on a sloppy click. */
 const MARQUEE_THRESHOLD = 4;
+
+const PARENT_ENTRY: SftpEntry = {
+  name: "..",
+  kind: "dir",
+  size: 0,
+  mtime: 0,
+};
 
 type Props = {
   side: SftpSide;
-  /** Heading label, e.g. "LOCAL" or the remote host name. */
   title: string;
   path: string;
   entries: SftpEntry[];
-  /** Static reference time for date formatting (kept out of render for purity). */
   now: number;
   connected: boolean;
   focused: boolean;
   onFocus: () => void;
   onConnect?: () => void;
-  /** Listing state — drives loading / error overlays. Defaults to "loaded". */
-  status?: "idle" | "loading" | "loaded" | "error";
+  status?: "idle" | "connecting" | "loading" | "loaded" | "error";
   error?: string | null;
-  /** Navigation (omitted on still-mock panes → controls render inert). */
   onNavigate?: (path: string) => void;
   onEnterDir?: (name: string) => void;
   onBack?: () => void;
@@ -45,7 +49,6 @@ type Props = {
   onRefresh?: () => void;
   canGoBack?: boolean;
   canGoForward?: boolean;
-  /** Pane-local hidden-files toggle (the eye button in the toolbar). */
   showHidden?: boolean;
   onToggleHidden?: () => void;
 };
@@ -76,19 +79,13 @@ export function SftpPane({
 }: Props) {
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  // Bookmarked paths for quick navigation. Visual-only in this phase; later
-  // milestones persist these per host/side.
   const [bookmarks, setBookmarks] = useState<string[]>([]);
-  // Anchor for Shift+click range selection — the last row clicked without Shift.
   const [anchorIndex, setAnchorIndex] = useState<number | null>(null);
-  // Marquee rectangle in content-space px (null when not dragging).
   const [marquee, setMarquee] = useState<{ top: number; height: number } | null>(
     null,
   );
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Clicking into the other pane drops this pane's selection — only one pane
-  // holds a selection at a time, matching dual-pane file managers.
   useEffect(() => {
     if (!focused) {
       setSelected((prev) => (prev.size > 0 ? new Set() : prev));
@@ -96,19 +93,28 @@ export function SftpPane({
     }
   }, [focused]);
 
+  const isError = status === "error";
+  const isRoot = path === "/";
+
   const sorted = useMemo(() => {
+    // On error, show only ".." so the user can navigate back.
+    if (isError) return isRoot ? [] : [PARENT_ENTRY];
+
     const f = filter.trim().toLowerCase();
     const list = f
       ? entries.filter((e) => e.name.toLowerCase().includes(f))
       : entries;
-    // Directories first, then alphabetical — the conventional file-manager order.
-    return [...list].sort((a, b) => {
+    const sortedEntries = [...list].sort((a, b) => {
       const ad = a.kind === "dir" ? 0 : 1;
       const bd = b.kind === "dir" ? 0 : 1;
       if (ad !== bd) return ad - bd;
       return a.name.localeCompare(b.name);
     });
-  }, [entries, filter]);
+
+    // Always show ".." at the top (except at root) for quick parent navigation.
+    if (!isRoot) return [PARENT_ENTRY, ...sortedEntries];
+    return sortedEntries;
+  }, [entries, filter, isError, isRoot]);
 
   const virtualizer = useVirtualizer({
     count: sorted.length,
@@ -118,15 +124,11 @@ export function SftpPane({
     getItemKey: (index) => sorted[index]?.name ?? index,
   });
 
-  // Row selection on mousedown (file-manager convention: selection commits
-  // before the click completes). Handles plain / Ctrl-Cmd toggle / Shift range.
   const onRowMouseDown = useCallback(
     (index: number, e: React.MouseEvent) => {
       const name = sorted[index]?.name;
       if (!name) return;
 
-      // Right-click keeps an existing multi-selection so the context menu can
-      // act on all selected items; otherwise it selects just this row.
       if (e.button === 2) {
         setSelected((prev) => (prev.has(name) ? prev : new Set([name])));
         setAnchorIndex(index);
@@ -144,7 +146,7 @@ export function SftpPane({
           for (let i = lo; i <= hi; i++) next.add(sorted[i].name);
           return next;
         });
-        return; // anchor stays put across a range extension
+        return;
       }
 
       if (additive) {
@@ -164,11 +166,9 @@ export function SftpPane({
     [sorted, anchorIndex],
   );
 
-  // Marquee (rubber-band) selection: drag over empty list area to box-select.
   const onListMouseDown = useCallback(
     (e: React.MouseEvent) => {
       if (e.button !== 0) return;
-      // Ignore drags that begin on a row — those are row selections.
       if ((e.target as HTMLElement).closest('[role="row"]')) return;
       const el = scrollRef.current;
       if (!el) return;
@@ -199,7 +199,6 @@ export function SftpPane({
         window.removeEventListener("mousemove", onMove);
         window.removeEventListener("mouseup", onUp);
         setMarquee(null);
-        // A click (no drag) on empty space clears the selection.
         if (!moved && !additive) {
           setSelected(new Set());
           setAnchorIndex(null);
@@ -210,6 +209,17 @@ export function SftpPane({
       window.addEventListener("mouseup", onUp);
     },
     [selected, sorted],
+  );
+
+  const handleRowDoubleClick = useCallback(
+    (entry: SftpEntry) => {
+      if (entry.name === "..") {
+        onUp?.();
+      } else if (entry.kind === "dir") {
+        onEnterDir?.(entry.name);
+      }
+    },
+    [onUp, onEnterDir],
   );
 
   const showEmpty = side === "remote" && !connected;
@@ -239,7 +249,7 @@ export function SftpPane({
       </div>
 
       {showEmpty ? (
-        <SftpEmptyState onConnect={onConnect} />
+        <SftpEmptyState onConnect={onConnect} status={status === "connecting" ? "connecting" : "idle"} hostName={title} />
       ) : (
         <>
           <SftpToolbar
@@ -290,16 +300,6 @@ export function SftpPane({
                       style={{ top: marquee.top, height: marquee.height }}
                     />
                   )}
-                  {status === "error" && (
-                    <div className="absolute inset-x-0 top-0 z-20 m-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-[11px] text-destructive">
-                      {error || "Failed to read directory"}
-                    </div>
-                  )}
-                  {status === "loaded" && sorted.length === 0 && (
-                    <div className="pointer-events-none absolute inset-x-0 top-6 text-center text-[11px] text-muted-foreground">
-                      {filter.trim() ? "No matches" : "Empty folder"}
-                    </div>
-                  )}
                   {virtualizer.getVirtualItems().map((vr) => {
                     const entry = sorted[vr.index];
                     if (!entry) return null;
@@ -320,14 +320,39 @@ export function SftpPane({
                           selected={selected.has(entry.name)}
                           now={now}
                           onMouseDown={(e) => onRowMouseDown(vr.index, e)}
-                          onDoubleClick={() =>
-                            entry.kind === "dir" && onEnterDir?.(entry.name)
-                          }
+                          onDoubleClick={() => handleRowDoubleClick(entry)}
                         />
                       </div>
                     );
                   })}
                 </div>
+
+                {isError && (
+                  <div className="flex flex-col items-center justify-center gap-3 py-10 text-center">
+                    <HugeiconsIcon
+                      icon={Plug01Icon}
+                      size={28}
+                      strokeWidth={1.5}
+                      className="text-destructive"
+                    />
+                    <div className="space-y-0.5 text-[11px]">
+                      <div className="text-muted-foreground">
+                        Error invoking remote method
+                      </div>
+                      <div className="text-destructive">
+                        Error: {error || "Unknown error"}
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={onRefresh}
+                    >
+                      Retry
+                    </Button>
+                  </div>
+                )}
               </div>
             </ContextMenuTrigger>
             <ContextMenuContent className="min-w-44">

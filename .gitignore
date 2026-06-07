@@ -25,3 +25,5 @@ stats.html
 *.sw?
 
 *.tsbuildinfo
+# pnpm store
+.pnpm-store/

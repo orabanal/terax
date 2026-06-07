@@ -192,7 +192,7 @@ export function SftpToolbar({
       <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto text-xs text-muted-foreground [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {segments.map((seg, i) => (
           <span key={seg.path} className="flex shrink-0 items-center gap-0.5">
-            {i > 0 && <span className="text-muted-foreground/50">/</span>}
+            {i > 1 && <span className="text-muted-foreground/50">/</span>}
             <button
               type="button"
               onClick={() => onNavigateSegment?.(seg.path)}
