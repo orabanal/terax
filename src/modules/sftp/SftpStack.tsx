@@ -14,10 +14,7 @@ type Props = {
  */
 export function SftpStack({ tabs }: Props) {
   const exists = tabs.some((t) => t.kind === "sftp");
-  // A single static reference time for deterministic date formatting in the
-  // visual shell. Set once on mount; later milestones can refresh it.
   const [now] = useState(() => Date.now());
-  // Home directory for the local pane's initial listing (resolved async).
   const [home, setHome] = useState<string | null>(null);
 
   useEffect(() => {

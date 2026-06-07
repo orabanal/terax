@@ -4,96 +4,181 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { useCallback, useEffect, useState } from "react";
-import { useSshHostsStore } from "@/modules/ssh/store";
+import { useSshHostsStore, type SshHost } from "@/modules/ssh/store";
 import { SftpConflictDialog } from "./components/SftpConflictDialog";
+import { SftpConnection } from "./components/SftpConnection";
 import { SftpDeleteDialog } from "./components/SftpDeleteDialog";
-import { SftpHostPicker } from "./components/SftpHostPicker";
 import { SftpNameDialog } from "./components/SftpNameDialog";
-import { SftpPane } from "./components/SftpPane";
 import { SftpPermissionsDialog } from "./components/SftpPermissionsDialog";
+import { SftpSubTabs } from "./components/SftpSubTabs";
 import { SftpTransferQueue } from "./components/SftpTransferQueue";
 import { MOCK_TRANSFERS } from "./lib/mockData";
-import type { SftpSide } from "./lib/types";
-import { useLocalDir } from "./lib/useLocalDir";
-import { useRemoteDir } from "./lib/useRemoteDir";
+import type { SftpPaneMode } from "./components/SftpPane";
+
+type Connection = {
+  id: string;
+  mode: SftpPaneMode;
+  hostId?: string;
+};
+
+let nextConnId = 1;
+function newConnId() {
+  return `conn-${nextConnId++}`;
+}
 
 export function SftpView({ now, home }: { now: number; home: string | null }) {
-  const [focusedSide, setFocusedSide] = useState<SftpSide>("local");
-
-  const local = useLocalDir(home);
-  const remote = useRemoteDir();
-
   const { hosts, init } = useSshHostsStore();
   useEffect(() => {
     void init();
   }, [init]);
 
-  const handleHostSelect = useCallback(
-    (hostId: string) => {
-      const host = hosts.find((h) => h.id === hostId);
-      if (host) void remote.connect(host);
+  const [leftConns, setLeftConns] = useState<Connection[]>([
+    { id: newConnId(), mode: "local" },
+  ]);
+  const [leftActive, setLeftActive] = useState(0);
+
+  const [rightConns, setRightConns] = useState<Connection[]>([
+    { id: newConnId(), mode: "local" },
+  ]);
+  const [rightActive, setRightActive] = useState(0);
+
+  const [focusedSide, setFocusedSide] = useState<"left" | "right">("left");
+
+  const closeConnection = useCallback(
+    (side: "left" | "right", index: number) => {
+      if (side === "left") {
+        setLeftConns((prev) => {
+          if (prev.length <= 1) return prev;
+          const next = prev.filter((_, i) => i !== index);
+          setLeftActive((a) => Math.min(a, next.length - 1));
+          return next;
+        });
+      } else {
+        setRightConns((prev) => {
+          if (prev.length <= 1) return prev;
+          const next = prev.filter((_, i) => i !== index);
+          setRightActive((a) => Math.min(a, next.length - 1));
+          return next;
+        });
+      }
     },
-    [hosts, remote.connect],
+    [],
+  );
+
+  const addConnection = useCallback(
+    (side: "left" | "right", conn: Connection) => {
+      const setter = side === "left" ? setLeftConns : setRightConns;
+      const setActive = side === "left" ? setLeftActive : setRightActive;
+      setter((prev) => {
+        const next = [...prev, conn];
+        setActive(next.length - 1);
+        return next;
+      });
+    },
+    [],
+  );
+
+  const handleHostSelect = useCallback(
+    (side: "left" | "right", host: SshHost) => {
+      addConnection(side, {
+        id: newConnId(),
+        mode: "remote",
+        hostId: host.id,
+      });
+    },
+    [addConnection],
+  );
+
+  const handleLocal = useCallback(
+    (side: "left" | "right") => {
+      addConnection(side, { id: newConnId(), mode: "local" });
+    },
+    [addConnection],
+  );
+
+  const getConnectHost = useCallback(
+    (conn: Connection): SshHost | null => {
+      if (conn.mode !== "remote" || !conn.hostId) return null;
+      return hosts.find((h) => h.id === conn.hostId) ?? null;
+    },
+    [hosts],
+  );
+
+  const makeSubTabs = useCallback(
+    (conns: Connection[]) =>
+      conns.map((c) => ({
+        id: c.id,
+        label:
+          c.mode === "local"
+            ? "Local"
+            : (hosts.find((h) => h.id === c.hostId)?.name ?? "Remote"),
+      })),
+    [hosts],
   );
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-border/60 bg-background">
       <div className="flex h-8 shrink-0 items-center justify-between border-b border-border/60 bg-card px-2">
         <span className="text-xs font-medium text-foreground/80">SFTP</span>
-        <SftpHostPicker hosts={hosts} onSelect={handleHostSelect} />
       </div>
 
       <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
-        <ResizablePanel id="sftp-local" defaultSize="50%" minSize="20%">
-          <SftpPane
-            side="local"
-            title="Local"
-            path={local.path}
-            entries={local.entries}
-            now={now}
-            connected
-            focused={focusedSide === "local"}
-            onFocus={() => setFocusedSide("local")}
-            status={local.status}
-            error={local.error}
-            onNavigate={local.navigate}
-            onEnterDir={local.enterDir}
-            onBack={local.goBack}
-            onForward={local.goForward}
-            onUp={local.goUp}
-            onHome={local.goHome}
-            onRefresh={local.refresh}
-            canGoBack={local.canGoBack}
-            canGoForward={local.canGoForward}
-            showHidden={local.showHidden}
-            onToggleHidden={local.toggleHidden}
-          />
+        <ResizablePanel id="sftp-left" defaultSize="50%" minSize="20%">
+          <div className="flex h-full flex-col">
+            <SftpSubTabs
+              tabs={makeSubTabs(leftConns)}
+              activeIndex={leftActive}
+              onSelect={setLeftActive}
+              onClose={(i) => closeConnection("left", i)}
+              canClose={leftConns.length > 1}
+            />
+            <div className="min-h-0 flex-1">
+              {leftConns.map((conn, i) => (
+                <SftpConnection
+                  key={conn.id}
+                  mode={conn.mode}
+                  home={home}
+                  visible={i === leftActive}
+                  focused={focusedSide === "left"}
+                  onFocus={() => setFocusedSide("left")}
+                  now={now}
+                  hosts={hosts}
+                  onHostSelect={(h) => handleHostSelect("left", h)}
+                  onLocal={() => handleLocal("left")}
+                  connectToHost={getConnectHost(conn)}
+                />
+              ))}
+            </div>
+          </div>
         </ResizablePanel>
         <ResizableHandle withHandle />
-        <ResizablePanel id="sftp-remote" defaultSize="50%" minSize="20%">
-          <SftpPane
-            side="remote"
-            title={remote.hostName ?? "Remote"}
-            path={remote.path}
-            entries={remote.entries}
-            now={now}
-            connected={remote.connected}
-            focused={focusedSide === "remote"}
-            onFocus={() => setFocusedSide("remote")}
-            status={remote.status}
-            error={remote.error}
-            onNavigate={remote.navigate}
-            onEnterDir={remote.enterDir}
-            onBack={remote.goBack}
-            onForward={remote.goForward}
-            onUp={remote.goUp}
-            onHome={remote.goHome}
-            onRefresh={remote.refresh}
-            canGoBack={remote.canGoBack}
-            canGoForward={remote.canGoForward}
-            showHidden={remote.showHidden}
-            onToggleHidden={remote.toggleHidden}
-          />
+        <ResizablePanel id="sftp-right" defaultSize="50%" minSize="20%">
+          <div className="flex h-full flex-col">
+            <SftpSubTabs
+              tabs={makeSubTabs(rightConns)}
+              activeIndex={rightActive}
+              onSelect={setRightActive}
+              onClose={(i) => closeConnection("right", i)}
+              canClose={rightConns.length > 1}
+            />
+            <div className="min-h-0 flex-1">
+              {rightConns.map((conn, i) => (
+                <SftpConnection
+                  key={conn.id}
+                  mode={conn.mode}
+                  home={home}
+                  visible={i === rightActive}
+                  focused={focusedSide === "right"}
+                  onFocus={() => setFocusedSide("right")}
+                  now={now}
+                  hosts={hosts}
+                  onHostSelect={(h) => handleHostSelect("right", h)}
+                  onLocal={() => handleLocal("right")}
+                  connectToHost={getConnectHost(conn)}
+                />
+              ))}
+            </div>
+          </div>
         </ResizablePanel>
       </ResizablePanelGroup>
 

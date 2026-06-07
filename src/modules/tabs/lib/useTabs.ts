@@ -304,6 +304,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     return targetId as number | null;
   }, []);
 
+
   /** Removes the SFTP tab (driven by the "Show SFTP" toggle, not a close button). */
   const removeSftpTab = useCallback(() => {
     setTabs((curr) => {

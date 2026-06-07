@@ -12,13 +12,14 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SftpEntry, SftpSide } from "../lib/types";
+import type { SshHost } from "@/modules/ssh/store";
 import { SftpEmptyState } from "./SftpEmptyState";
 import { SftpFileRow } from "./SftpFileRow";
+import { SftpHostPicker } from "./SftpHostPicker";
 import { SftpToolbar } from "./SftpToolbar";
 
 const ROW_HEIGHT = 28;
 const OVERSCAN = 8;
-
 const MARQUEE_THRESHOLD = 4;
 
 const PARENT_ENTRY: SftpEntry = {
@@ -27,6 +28,8 @@ const PARENT_ENTRY: SftpEntry = {
   size: 0,
   mtime: 0,
 };
+
+export type SftpPaneMode = "local" | "remote";
 
 type Props = {
   side: SftpSide;
@@ -51,6 +54,14 @@ type Props = {
   canGoForward?: boolean;
   showHidden?: boolean;
   onToggleHidden?: () => void;
+  /** Current pane mode. When omitted, the pane is fixed to its `side`. */
+  mode?: SftpPaneMode;
+  /** SSH hosts for the host picker. */
+  hosts?: SshHost[];
+  /** Called when a host is selected from the picker. */
+  onHostSelect?: (host: SshHost) => void;
+  /** Called when "Local" is selected from the host picker. */
+  onLocal?: () => void;
 };
 
 export function SftpPane({
@@ -76,6 +87,10 @@ export function SftpPane({
   canGoForward,
   showHidden,
   onToggleHidden,
+  mode,
+  hosts,
+  onHostSelect,
+  onLocal,
 }: Props) {
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -85,6 +100,8 @@ export function SftpPane({
     null,
   );
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const effectiveMode: SftpPaneMode = mode ?? (side === "local" ? "local" : "remote");
 
   useEffect(() => {
     if (!focused) {
@@ -97,7 +114,6 @@ export function SftpPane({
   const isRoot = path === "/";
 
   const sorted = useMemo(() => {
-    // On error, show only ".." so the user can navigate back.
     if (isError) return isRoot ? [] : [PARENT_ENTRY];
 
     const f = filter.trim().toLowerCase();
@@ -111,7 +127,6 @@ export function SftpPane({
       return a.name.localeCompare(b.name);
     });
 
-    // Always show ".." at the top (except at root) for quick parent navigation.
     if (!isRoot) return [PARENT_ENTRY, ...sortedEntries];
     return sortedEntries;
   }, [entries, filter, isError, isRoot]);
@@ -222,7 +237,7 @@ export function SftpPane({
     [onUp, onEnterDir],
   );
 
-  const showEmpty = side === "remote" && !connected;
+  const showEmpty = effectiveMode === "remote" && !connected;
 
   const isBookmarked = bookmarks.includes(path);
   const toggleBookmark = useCallback(() => {
@@ -242,11 +257,12 @@ export function SftpPane({
       )}
       onMouseDown={onFocus}
     >
-      <div className="flex h-7 shrink-0 items-center gap-1.5 border-b border-border/60 bg-card px-2">
-        <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          {title}
-        </span>
-      </div>
+      {hosts && onHostSelect && onLocal && (
+        <div className="flex h-7 shrink-0 items-center gap-1.5 border-b border-border/60 bg-card px-2">
+          <div className="flex-1" />
+          <SftpHostPicker hosts={hosts} onSelect={onHostSelect} onLocal={onLocal} />
+        </div>
+      )}
 
       {showEmpty ? (
         <SftpEmptyState onConnect={onConnect} status={status === "connecting" ? "connecting" : "idle"} hostName={title} />
@@ -359,7 +375,7 @@ export function SftpPane({
               <ContextMenuItem>Open</ContextMenuItem>
               <ContextMenuItem>Edit</ContextMenuItem>
               <ContextMenuItem>
-                {side === "local" ? "Upload" : "Download"}
+                {effectiveMode === "local" ? "Upload" : "Download"}
               </ContextMenuItem>
               <ContextMenuSeparator />
               <ContextMenuItem>Rename</ContextMenuItem>
