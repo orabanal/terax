@@ -38,6 +38,8 @@ import {
 } from "@/modules/header";
 import type { PreviewPaneHandle } from "@/modules/preview";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
+import { usePreferencesStore } from "@/modules/settings/preferences";
+import { setSftpTabVisible } from "@/modules/settings/store";
 import {
   ShortcutsDialog,
   useGlobalShortcuts,
@@ -93,6 +95,8 @@ export default function App() {
     newAgentTab,
     newPrivateTab,
     newSshTab,
+    ensureSftpTab,
+    removeSftpTab,
     openFileTab,
     pinTab,
     newPreviewTab,
@@ -373,6 +377,21 @@ export default function App() {
     },
     [newSshTab],
   );
+
+  // The single SFTP tab is driven by a persisted preference: on toggle we
+  // write the pref, and an effect reconciles tab existence with it (so the
+  // tab also appears/disappears when the flag is changed from Settings).
+  const sftpTabVisible = usePreferencesStore((s) => s.sftpTabVisible);
+  const sftpPrefHydrated = usePreferencesStore((s) => s.hydrated);
+  useEffect(() => {
+    if (!sftpPrefHydrated) return;
+    if (sftpTabVisible) ensureSftpTab();
+    else removeSftpTab();
+  }, [sftpPrefHydrated, sftpTabVisible, ensureSftpTab, removeSftpTab]);
+
+  const toggleSftpTab = useCallback(() => {
+    void setSftpTabVisible(!usePreferencesStore.getState().sftpTabVisible);
+  }, []);
 
   const sendCd = useCallback(
     (path: string) => {
@@ -793,6 +812,8 @@ export default function App() {
               onClose={handleClose}
               onPin={pinTab}
               onRename={handleRenameTab}
+              sftpVisible={sftpTabVisible}
+              onToggleSftp={toggleSftpTab}
               onToggleSidebar={toggleSidebar}
               onSplit={splitActivePaneInActiveTab}
               canSplit={

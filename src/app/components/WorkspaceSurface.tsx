@@ -4,6 +4,7 @@ import { AiDiffStack, EditorStack, GitDiffStack } from "@/modules/editor";
 import { GitHistoryStack } from "@/modules/git-history";
 import { MarkdownStack } from "@/modules/markdown";
 import { PreviewStack } from "@/modules/preview";
+import { SftpStack } from "@/modules/sftp";
 import type { Tab } from "@/modules/tabs";
 import { TerminalStack } from "@/modules/terminal";
 
@@ -71,6 +72,7 @@ export function WorkspaceSurface({
   const isAiDiffTab = kind === "ai-diff";
   const isGitDiffTab = kind === "git-diff" || kind === "git-commit-file";
   const isGitHistoryTab = kind === "git-history";
+  const isSftpTab = kind === "sftp";
 
   return (
     <div className="relative h-full min-h-0">
@@ -168,6 +170,15 @@ export function WorkspaceSurface({
           onOpenCommitFile={onOpenCommitFile}
           onSearchHandle={onGitHistorySearchHandle}
         />
+      </div>
+      <div
+        className={cn(
+          "absolute inset-0 px-3 pt-2 pb-2",
+          !isSftpTab && "invisible pointer-events-none",
+        )}
+        aria-hidden={!isSftpTab}
+      >
+        <SftpStack tabs={tabs} />
       </div>
     </div>
   );

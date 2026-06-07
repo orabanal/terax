@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/context-menu";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -22,6 +23,7 @@ import {
   Cancel01Icon,
   Clock01Icon,
   ComputerTerminal02Icon,
+  FolderTransferIcon,
   GitBranchIcon,
   GitCompareIcon,
   Globe02Icon,
@@ -51,6 +53,10 @@ type Props = {
   onPin: (id: number) => void;
   /** Set a terminal tab's custom label; empty string resets to default. */
   onRename: (id: number, title: string) => void;
+  /** Whether the pinned SFTP tab is currently shown. */
+  sftpVisible: boolean;
+  /** Toggle the pinned SFTP tab on/off. */
+  onToggleSftp: () => void;
   compact?: boolean;
 };
 
@@ -68,10 +74,22 @@ export function TabBar({
   onClose,
   onPin,
   onRename,
+  sftpVisible,
+  onToggleSftp,
   compact,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
+  // The pinned SFTP tab always occupies the first slot, regardless of when it
+  // was created relative to other tabs.
+  const orderedTabs =
+    tabs.length > 1 && tabs.some((t) => t.kind === "sftp")
+      ? [...tabs].sort((a, b) => {
+          const as = a.kind === "sftp" ? 0 : 1;
+          const bs = b.kind === "sftp" ? 0 : 1;
+          return as - bs;
+        })
+      : tabs;
   const sshHosts = useSshHostsStore((s) => s.hosts);
   const sshHydrated = useSshHostsStore((s) => s.hydrated);
   const sshInit = useSshHostsStore((s) => s.init);
@@ -129,9 +147,12 @@ export function TabBar({
           onValueChange={(v) => onSelect(Number(v))}
         >
           <TabsList className="h-7 w-max gap-0.5 bg-transparent p-0">
-            {tabs.map((t) => {
+            {orderedTabs.map((t) => {
               const isPreview = t.kind === "editor" && (t as EditorTab).preview;
               const isActive = t.id === activeId;
+              // The SFTP tab is pinned and managed by the "Show SFTP" toggle,
+              // so it never shows the inline close affordance.
+              const closable = tabs.length > 1 && t.kind !== "sftp";
 
               // While renaming, render a non-button cell so the <input> is not
               // nested inside the trigger <button> (invalid HTML, and WebKit
@@ -206,7 +227,7 @@ export function TabBar({
                       />
                     ) : null}
                   </span>
-                  {tabs.length > 1 && (
+                  {closable && (
                     <span
                       role="button"
                       aria-label="Close tab"
@@ -328,6 +349,18 @@ export function TabBar({
               <span className="flex-1">Git Graph</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            <DropdownMenuCheckboxItem
+              checked={sftpVisible}
+              onCheckedChange={onToggleSftp}
+            >
+              <HugeiconsIcon
+                icon={FolderTransferIcon}
+                size={14}
+                strokeWidth={1.75}
+              />
+              <span className="flex-1">Show SFTP</span>
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuSeparator />
             {sshHydrated && sshHosts.length === 0 && (
               <DropdownMenuItem disabled>
                 <HugeiconsIcon icon={ServerStack01Icon} size={14} strokeWidth={1.75} />
@@ -406,6 +439,16 @@ function TabIcon({ tab }: { tab: Tab }) {
     return (
       <HugeiconsIcon
         icon={Clock01Icon}
+        size={14}
+        strokeWidth={2}
+        className="shrink-0"
+      />
+    );
+  }
+  if (tab.kind === "sftp") {
+    return (
+      <HugeiconsIcon
+        icon={FolderTransferIcon}
         size={14}
         strokeWidth={2}
         className="shrink-0"

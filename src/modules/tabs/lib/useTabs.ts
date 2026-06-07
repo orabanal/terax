@@ -13,7 +13,7 @@ import {
   type SplitDir,
 } from "@/modules/terminal/lib/panes";
 import { disposeSession } from "@/modules/terminal/lib/useTerminalSession";
-import { type SshHost } from "@/modules/ssh/store";
+import type { SshHost } from "@/modules/ssh/store";
 
 // Matches the renderer slot pool size — over this we'd evict an active leaf.
 export const MAX_PANES_PER_TAB = 9;
@@ -111,6 +111,17 @@ export type GitCommitFileDiffTab = {
   originalPath: string | null;
 };
 
+/**
+ * Single, pinned SFTP browser tab. At most one exists at a time; it lives in
+ * the first tab-bar slot and is shown/hidden via the "Show SFTP" toggle rather
+ * than the regular close affordance.
+ */
+export type SftpTab = {
+  id: number;
+  kind: "sftp";
+  title: string;
+};
+
 export type Tab =
   | TerminalTab
   | EditorTab
@@ -119,7 +130,8 @@ export type Tab =
   | AiDiffTab
   | GitDiffTab
   | GitHistoryTab
-  | GitCommitFileDiffTab;
+  | GitCommitFileDiffTab
+  | SftpTab;
 
 export type TabPatch = Partial<{
   title: string;
@@ -269,6 +281,41 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     ]);
     setActiveId(tabId);
     return { tabId, leafId };
+  }, []);
+
+  /**
+   * Ensures the single SFTP tab exists and activates it. The tab is unique —
+   * a second call just re-activates the existing one. Rendering pins it to the
+   * first tab-bar slot (see TabBar).
+   */
+  const ensureSftpTab = useCallback(() => {
+    let targetId: number | null = null;
+    setTabs((curr) => {
+      const existing = curr.find((t) => t.kind === "sftp");
+      if (existing) {
+        targetId = existing.id;
+        return curr;
+      }
+      const id = nextIdRef.current++;
+      targetId = id;
+      return [...curr, { id, kind: "sftp", title: "SFTP" } satisfies SftpTab];
+    });
+    if (targetId !== null) setActiveId(targetId);
+    return targetId as number | null;
+  }, []);
+
+  /** Removes the SFTP tab (driven by the "Show SFTP" toggle, not a close button). */
+  const removeSftpTab = useCallback(() => {
+    setTabs((curr) => {
+      const target = curr.find((t) => t.kind === "sftp");
+      if (!target || curr.length <= 1) return curr;
+      const idx = curr.findIndex((t) => t.id === target.id);
+      const next = curr.filter((t) => t.id !== target.id);
+      setActiveId((active) =>
+        target.id === active ? next[Math.max(0, idx - 1)].id : active,
+      );
+      return next;
+    });
   }, []);
 
   /**
@@ -906,6 +953,8 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     newAgentTab,
     newPrivateTab,
     newSshTab,
+    ensureSftpTab,
+    removeSftpTab,
     openFileTab,
     pinTab,
     newPreviewTab,

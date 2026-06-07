@@ -26,6 +26,7 @@ import {
   setEditorAutoSaveDelay,
   setRestoreWindowState,
   setShowHidden,
+  setSftpTabVisible,
   setTerminalFontFamily,
   setTerminalLetterSpacing,
   setTerminalFontSize,
@@ -75,6 +76,7 @@ export function GeneralSection() {
   const editorAutoSave = usePreferencesStore((s) => s.editorAutoSave);
   const editorAutoSaveDelay = usePreferencesStore((s) => s.editorAutoSaveDelay);
   const showHidden = usePreferencesStore((s) => s.showHidden);
+  const sftpTabVisible = usePreferencesStore((s) => s.sftpTabVisible);
   const terminalWebglEnabled = usePreferencesStore(
     (s) => s.terminalWebglEnabled,
   );
@@ -209,6 +211,19 @@ export function GeneralSection() {
           <Switch
             checked={showHidden}
             onCheckedChange={(v) => void setShowHidden(v)}
+          />
+        </SettingRow>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label>SFTP</Label>
+        <SettingRow
+          title="Show SFTP tab"
+          description="Pin a single SFTP file-transfer tab to the first slot of the tab bar. Toggle off to hide it."
+        >
+          <Switch
+            checked={sftpTabVisible}
+            onCheckedChange={(v) => void setSftpTabVisible(v)}
           />
         </SettingRow>
       </div>
