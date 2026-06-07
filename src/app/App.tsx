@@ -293,13 +293,14 @@ export default function App() {
     pendingDeleteTabs,
     handleClose,
     confirmClose,
+    saveAndClose,
     cancelClose,
     confirmTerminalClose,
     cancelTerminalClose,
     confirmDeleteClose,
     cancelDeleteClose,
     handlePathDeleted,
-  } = useTabCloseGuards({ tabs, disposeTab });
+  } = useTabCloseGuards({ tabs, disposeTab, editorRefs });
 
   useEffect(() => {
     const live = new Set<number>();
@@ -902,6 +903,7 @@ export default function App() {
                       onAiDiffReject={(id) => respondToApproval(id, false)}
                       onOpenCommitFile={openCommitFileDiffTab}
                       onGitHistorySearchHandle={setGitHistoryHandle}
+                      onOpenFile={handleOpenFile}
                     />
                   </div>
                 </div>
@@ -976,6 +978,7 @@ export default function App() {
             pendingCloseTab={pendingCloseTab}
             onCancelClose={cancelClose}
             onConfirmClose={confirmClose}
+            onSaveAndClose={saveAndClose}
             pendingTerminalCloseTab={pendingTerminalCloseTab}
             onCancelTerminalClose={cancelTerminalClose}
             onConfirmTerminalClose={confirmTerminalClose}

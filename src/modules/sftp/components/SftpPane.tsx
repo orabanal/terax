@@ -9,13 +9,17 @@ import {
 import { cn } from "@/lib/utils";
 import { Plug01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { invoke } from "@tauri-apps/api/core";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { SftpEntry, SftpSide } from "../lib/types";
+import type { DirMutations, SftpEntry, SftpSide } from "../lib/types";
 import type { SshHost } from "@/modules/ssh/store";
+import { useSftpBookmarks } from "../lib/useSftpBookmarks";
+import { SftpDeleteDialog } from "./SftpDeleteDialog";
 import { SftpEmptyState } from "./SftpEmptyState";
 import { SftpFileRow } from "./SftpFileRow";
 import { SftpHostPicker } from "./SftpHostPicker";
+import { SftpPermissionsDialog } from "./SftpPermissionsDialog";
 import { SftpToolbar } from "./SftpToolbar";
 
 const ROW_HEIGHT = 28;
@@ -31,7 +35,28 @@ const PARENT_ENTRY: SftpEntry = {
 
 export type SftpPaneMode = "local" | "remote";
 
+/** Phantom entry injected at the top of the list during inline creation. */
+const PHANTOM_ENTRY: SftpEntry = {
+  name: "",
+  kind: "file",
+  size: 0,
+  mtime: 0,
+};
+
+type InlineEditState =
+  | null
+  | { kind: "new-folder" }
+  | { kind: "new-file" }
+  | { kind: "rename"; originalName: string };
+
+type ModalDialogState =
+  | { kind: "none" }
+  | { kind: "delete"; entries: SftpEntry[] }
+  | { kind: "permissions"; entry: SftpEntry };
+
 type Props = {
+  /** Unique key for scoping bookmarks to this connection. */
+  connKey: string;
   side: SftpSide;
   title: string;
   path: string;
@@ -54,17 +79,20 @@ type Props = {
   canGoForward?: boolean;
   showHidden?: boolean;
   onToggleHidden?: () => void;
-  /** Current pane mode. When omitted, the pane is fixed to its `side`. */
   mode?: SftpPaneMode;
-  /** SSH hosts for the host picker. */
+  /** SFTP session ID for remote file operations. */
+  sessionId?: number | null;
+  /** Opens a remote file in the local editor. */
+  editRemoteFile?: (sessionId: number, remotePath: string) => Promise<void>;
+  /** Opens a remote file with the OS default application. */
+  openRemoteFile?: (sessionId: number, remotePath: string) => Promise<void>;
   hosts?: SshHost[];
-  /** Called when a host is selected from the picker. */
   onHostSelect?: (host: SshHost) => void;
-  /** Called when "Local" is selected from the host picker. */
   onLocal?: () => void;
-};
+} & DirMutations;
 
 export function SftpPane({
+  connKey,
   side,
   title,
   path,
@@ -88,18 +116,31 @@ export function SftpPane({
   showHidden,
   onToggleHidden,
   mode,
+  sessionId,
+  editRemoteFile,
+  openRemoteFile,
   hosts,
   onHostSelect,
   onLocal,
+  mkdir,
+  createFile,
+  rename,
+  remove,
+  chmod,
 }: Props) {
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [bookmarks, setBookmarks] = useState<string[]>([]);
   const [anchorIndex, setAnchorIndex] = useState<number | null>(null);
   const [marquee, setMarquee] = useState<{ top: number; height: number } | null>(
     null,
   );
+  const [inlineEdit, setInlineEdit] = useState<InlineEditState>(null);
+  const [modal, setModal] = useState<ModalDialogState>({ kind: "none" });
+  const [remoteLoading, setRemoteLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const { bookmarks, toggle: toggleBookmark, remove: removeBookmark, isBookmarked } =
+    useSftpBookmarks(connKey);
 
   const effectiveMode: SftpPaneMode = mode ?? (side === "local" ? "local" : "remote");
 
@@ -127,16 +168,28 @@ export function SftpPane({
       return a.name.localeCompare(b.name);
     });
 
-    if (!isRoot) return [PARENT_ENTRY, ...sortedEntries];
-    return sortedEntries;
-  }, [entries, filter, isError, isRoot]);
+    const result = isRoot ? sortedEntries : [PARENT_ENTRY, ...sortedEntries];
+
+    // Inject phantom entry for inline creation at the top (after "..").
+    if (inlineEdit?.kind === "new-folder" || inlineEdit?.kind === "new-file") {
+      const phantom = {
+        ...PHANTOM_ENTRY,
+        kind: inlineEdit.kind === "new-folder" ? ("dir" as const) : ("file" as const),
+      };
+      return isRoot
+        ? [phantom, ...result]
+        : [PARENT_ENTRY, phantom, ...result.slice(1)];
+    }
+
+    return result;
+  }, [entries, filter, isError, isRoot, inlineEdit]);
 
   const virtualizer = useVirtualizer({
     count: sorted.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: OVERSCAN,
-    getItemKey: (index) => sorted[index]?.name ?? index,
+    getItemKey: (index) => sorted[index]?.name ?? `phantom-${index}`,
   });
 
   const onRowMouseDown = useCallback(
@@ -226,28 +279,126 @@ export function SftpPane({
     [selected, sorted],
   );
 
+  const isTextByExt = useCallback((name: string) => {
+    const ext = name.split(".").pop()?.toLowerCase() ?? "";
+    const textExts = new Set([
+      "txt", "md", "json", "xml", "yaml", "yml", "toml", "js", "ts", "jsx",
+      "tsx", "py", "rb", "php", "sh", "c", "h", "cpp", "rs", "go", "java",
+      "css", "scss", "html", "htm", "svg", "sql", "env", "conf", "ini",
+      "log", "csv", "lua", "vim", "swift", "dart", "ex", "hs", "proto",
+      "tf", "lock", "sum", "r", "R", "kt", "m", "mm",
+    ]);
+    return textExts.has(ext) || !ext;
+  }, []);
+
   const handleRowDoubleClick = useCallback(
     (entry: SftpEntry) => {
       if (entry.name === "..") {
         onUp?.();
       } else if (entry.kind === "dir") {
         onEnterDir?.(entry.name);
+      } else if (effectiveMode === "local") {
+        void invoke("fs_open", { path: `${path}/${entry.name}` }).catch(() => {});
+      } else if (sessionId != null) {
+        const fullPath = `${path}/${entry.name}`;
+        setRemoteLoading(true);
+        const handler = isTextByExt(entry.name) ? editRemoteFile : openRemoteFile;
+        void handler?.(sessionId, fullPath).finally(() =>
+          setRemoteLoading(false),
+        );
       }
     },
-    [onUp, onEnterDir],
+    [onUp, onEnterDir, effectiveMode, path, sessionId, editRemoteFile, openRemoteFile, isTextByExt],
   );
 
   const showEmpty = effectiveMode === "remote" && !connected;
 
-  const isBookmarked = bookmarks.includes(path);
-  const toggleBookmark = useCallback(() => {
-    setBookmarks((prev) =>
-      prev.includes(path) ? prev.filter((p) => p !== path) : [...prev, path],
-    );
-  }, [path]);
-  const removeBookmark = useCallback((p: string) => {
-    setBookmarks((prev) => prev.filter((b) => b !== p));
-  }, []);
+  const selectedEntries = useMemo(
+    () => sorted.filter((e) => e.name !== ".." && e.name !== "" && selected.has(e.name)),
+    [sorted, selected],
+  );
+
+  // Inline edit commit handlers.
+  const commitNewFolder = useCallback(
+    (name: string) => {
+      setInlineEdit(null);
+      void mkdir(name);
+    },
+    [mkdir],
+  );
+
+  const commitNewFile = useCallback(
+    (name: string) => {
+      setInlineEdit(null);
+      void createFile(name);
+    },
+    [createFile],
+  );
+
+  const commitRename = useCallback(
+    (newName: string) => {
+      const original = inlineEdit?.kind === "rename" ? inlineEdit.originalName : null;
+      setInlineEdit(null);
+      if (original && original !== newName) void rename(original, newName);
+    },
+    [inlineEdit, rename],
+  );
+
+  const cancelEdit = useCallback(() => setInlineEdit(null), []);
+
+  // Delete handler.
+  const handleDelete = useCallback(() => {
+    const toDelete = selectedEntries.filter((e) => e.name !== "..");
+    if (toDelete.length > 0) void remove(toDelete);
+  }, [remove, selectedEntries]);
+
+  // Chmod handler.
+  const handleChmod = useCallback(
+    (newMode: number) => {
+      const entry = selectedEntries[0];
+      if (entry) void chmod(entry.name, newMode);
+    },
+    [chmod, selectedEntries],
+  );
+
+  // Open handler — text files open in editor, non-text open with OS app.
+  const handleOpen = useCallback(() => {
+    const entry = selectedEntries[0];
+    if (!entry) return;
+    if (entry.kind === "dir") {
+      onEnterDir?.(entry.name);
+    } else if (effectiveMode === "local") {
+      void invoke("fs_open", { path: `${path}/${entry.name}` }).catch(() => {});
+    } else if (sessionId != null) {
+      const fullPath = `${path}/${entry.name}`;
+      setRemoteLoading(true);
+      const handler = isTextByExt(entry.name) ? editRemoteFile : openRemoteFile;
+      void handler?.(sessionId, fullPath).finally(() =>
+        setRemoteLoading(false),
+      );
+    }
+  }, [selectedEntries, onEnterDir, effectiveMode, path, sessionId, editRemoteFile, openRemoteFile, isTextByExt]);
+
+  // Open with OS default app (always, even for text files).
+  const handleOpenWith = useCallback(() => {
+    const entry = selectedEntries[0];
+    if (!entry || entry.kind === "dir") return;
+    if (effectiveMode === "local") {
+      void invoke("fs_open", { path: `${path}/${entry.name}` }).catch(() => {});
+    } else if (sessionId != null && openRemoteFile) {
+      setRemoteLoading(true);
+      void openRemoteFile(sessionId, `${path}/${entry.name}`).finally(() =>
+        setRemoteLoading(false),
+      );
+    }
+  }, [selectedEntries, effectiveMode, path, sessionId, openRemoteFile]);
+
+  // Reveal in Finder / file manager.
+  const handleReveal = useCallback(() => {
+    const entry = selectedEntries[0];
+    if (!entry || effectiveMode !== "local") return;
+    void invoke("fs_reveal", { path: `${path}/${entry.name}` }).catch(() => {});
+  }, [selectedEntries, effectiveMode, path]);
 
   return (
     <div
@@ -273,8 +424,8 @@ export function SftpPane({
             filter={filter}
             onFilterChange={setFilter}
             bookmarks={bookmarks.map((p) => ({ path: p }))}
-            isBookmarked={isBookmarked}
-            onToggleBookmark={toggleBookmark}
+            isBookmarked={isBookmarked(path)}
+            onToggleBookmark={() => toggleBookmark(path)}
             onRemoveBookmark={removeBookmark}
             onSelectBookmark={onNavigate}
             onNavigateSegment={onNavigate}
@@ -287,6 +438,8 @@ export function SftpPane({
             canGoForward={canGoForward}
             showHidden={showHidden}
             onToggleHidden={onToggleHidden}
+            onNewFolder={() => setInlineEdit({ kind: "new-folder" })}
+            onNewFile={() => setInlineEdit({ kind: "new-file" })}
           />
 
           <div className="flex h-6 shrink-0 items-center gap-2 border-b border-border/60 px-2 text-[11px] font-medium text-muted-foreground">
@@ -319,6 +472,10 @@ export function SftpPane({
                   {virtualizer.getVirtualItems().map((vr) => {
                     const entry = sorted[vr.index];
                     if (!entry) return null;
+                    const isPhantom = entry.name === "";
+                    const isRenaming =
+                      inlineEdit?.kind === "rename" &&
+                      inlineEdit.originalName === entry.name;
                     return (
                       <div
                         key={vr.key}
@@ -337,11 +494,31 @@ export function SftpPane({
                           now={now}
                           onMouseDown={(e) => onRowMouseDown(vr.index, e)}
                           onDoubleClick={() => handleRowDoubleClick(entry)}
+                          editing={isPhantom || isRenaming}
+                          onCommitRename={
+                            isPhantom
+                              ? inlineEdit?.kind === "new-folder"
+                                ? commitNewFolder
+                                : commitNewFile
+                              : isRenaming
+                                ? commitRename
+                                : undefined
+                          }
+                          onCancelEdit={cancelEdit}
                         />
                       </div>
                     );
                   })}
                 </div>
+
+                {remoteLoading && (
+                  <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/60">
+                    <div className="flex items-center gap-2 rounded-md bg-card px-3 py-2 text-xs text-muted-foreground shadow-sm ring-1 ring-border/60">
+                      <div className="size-3.5 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+                      Downloading...
+                    </div>
+                  </div>
+                )}
 
                 {isError && (
                   <div className="flex flex-col items-center justify-center gap-3 py-10 text-center">
@@ -372,16 +549,74 @@ export function SftpPane({
               </div>
             </ContextMenuTrigger>
             <ContextMenuContent className="min-w-44">
-              <ContextMenuItem>Open</ContextMenuItem>
-              <ContextMenuItem>Edit</ContextMenuItem>
-              <ContextMenuItem>
+              <ContextMenuItem
+                disabled={selectedEntries.length !== 1}
+                onClick={handleOpen}
+              >
+                Open
+              </ContextMenuItem>
+              <ContextMenuItem
+                disabled={selectedEntries.length !== 1 || selectedEntries[0]?.kind === "dir"}
+                onClick={handleOpenWith}
+              >
+                Open with...
+              </ContextMenuItem>
+              <ContextMenuItem
+                disabled={
+                  selectedEntries.length !== 1 ||
+                  selectedEntries[0]?.kind === "dir" ||
+                  (effectiveMode === "remote" && sessionId == null)
+                }
+                onClick={handleOpen}
+              >
+                Edit
+              </ContextMenuItem>
+              <ContextMenuItem disabled>
                 {effectiveMode === "local" ? "Upload" : "Download"}
               </ContextMenuItem>
               <ContextMenuSeparator />
-              <ContextMenuItem>Rename</ContextMenuItem>
-              <ContextMenuItem>Permissions</ContextMenuItem>
+              <ContextMenuItem onClick={() => setInlineEdit({ kind: "new-folder" })}>
+                New folder
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => setInlineEdit({ kind: "new-file" })}>
+                New file
+              </ContextMenuItem>
+              <ContextMenuItem
+                disabled={selectedEntries.length !== 1}
+                onClick={() => {
+                  const entry = selectedEntries[0];
+                  if (entry) setInlineEdit({ kind: "rename", originalName: entry.name });
+                }}
+              >
+                Rename
+              </ContextMenuItem>
+              <ContextMenuItem
+                disabled={selectedEntries.length !== 1 || selectedEntries[0]?.mode == null}
+                onClick={() => {
+                  const entry = selectedEntries[0];
+                  if (entry) setModal({ kind: "permissions", entry });
+                }}
+              >
+                Permissions
+              </ContextMenuItem>
               <ContextMenuSeparator />
-              <ContextMenuItem variant="destructive">Delete</ContextMenuItem>
+              <ContextMenuItem
+                disabled={selectedEntries.length !== 1 || effectiveMode !== "local"}
+                onClick={handleReveal}
+              >
+                Reveal in Finder
+              </ContextMenuItem>
+              <ContextMenuItem onClick={onRefresh}>
+                Refresh
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuItem
+                variant="destructive"
+                disabled={selectedEntries.length === 0}
+                onClick={() => setModal({ kind: "delete", entries: selectedEntries })}
+              >
+                Delete
+              </ContextMenuItem>
             </ContextMenuContent>
           </ContextMenu>
 
@@ -391,6 +626,21 @@ export function SftpPane({
           </div>
         </>
       )}
+
+      {/* Modal dialogs (delete + permissions only) */}
+      <SftpDeleteDialog
+        open={modal.kind === "delete"}
+        onOpenChange={(o) => !o && setModal({ kind: "none" })}
+        names={modal.kind === "delete" ? modal.entries.map((e) => e.name) : []}
+        onConfirm={handleDelete}
+      />
+      <SftpPermissionsDialog
+        open={modal.kind === "permissions"}
+        onOpenChange={(o) => !o && setModal({ kind: "none" })}
+        fileName={modal.kind === "permissions" ? modal.entry.name : undefined}
+        mode={modal.kind === "permissions" ? (modal.entry.mode ?? 0o644) : 0o644}
+        onApply={handleChmod}
+      />
     </div>
   );
 }

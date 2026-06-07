@@ -42,3 +42,12 @@ export type SftpTransfer = {
 export type SftpPaneTarget =
   | { side: "local" }
   | { side: "remote"; hostId: string; hostName: string };
+
+/** Filesystem mutation operations shared by local and remote hooks. */
+export type DirMutations = {
+  mkdir: (name: string) => Promise<void>;
+  createFile: (name: string) => Promise<void>;
+  rename: (oldName: string, newName: string) => Promise<void>;
+  remove: (entries: SftpEntry[]) => Promise<void>;
+  chmod: (name: string, mode: number) => Promise<void>;
+};

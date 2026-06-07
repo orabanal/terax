@@ -2,9 +2,11 @@ import { useEffect, useRef } from "react";
 import type { SshHost } from "@/modules/ssh/store";
 import { useLocalDir } from "../lib/useLocalDir";
 import { useRemoteDir } from "../lib/useRemoteDir";
+import { useSftpEdit } from "../lib/useSftpEdit";
 import { SftpPane, type SftpPaneMode } from "./SftpPane";
 
 type Props = {
+  connKey: string;
   mode: SftpPaneMode;
   home: string | null;
   visible: boolean;
@@ -15,13 +17,11 @@ type Props = {
   onHostSelect: (host: SshHost) => void;
   onLocal: () => void;
   connectToHost?: SshHost | null;
+  onOpenFile?: (path: string) => void;
 };
 
-/**
- * A single connection within a pane. Manages its own local/remote hooks
- * and renders a SftpPane when visible.
- */
 export function SftpConnection({
+  connKey,
   mode,
   home,
   visible,
@@ -32,16 +32,19 @@ export function SftpConnection({
   onHostSelect,
   onLocal,
   connectToHost,
+  onOpenFile,
 }: Props) {
   const local = useLocalDir(home);
   const remote = useRemoteDir();
-  const autoConnectDone = useRef(false);
-
   const data = mode === "local" ? local : remote;
+  const { editRemoteFile, openRemoteFile } = useSftpEdit(
+    onOpenFile ?? (() => {}),
+    data.refresh,
+  );
+  const autoConnectDone = useRef(false);
   const connected = mode === "local" || remote.connected;
   const title = mode === "local" ? "Local" : (remote.hostName ?? "Remote");
 
-  // Auto-connect to host when provided.
   useEffect(() => {
     if (connectToHost && mode === "remote" && !autoConnectDone.current) {
       autoConnectDone.current = true;
@@ -53,6 +56,7 @@ export function SftpConnection({
 
   return (
     <SftpPane
+      connKey={connKey}
       side={mode === "local" ? "local" : "remote"}
       title={title}
       path={data.path}
@@ -78,6 +82,14 @@ export function SftpConnection({
       hosts={hosts}
       onHostSelect={onHostSelect}
       onLocal={onLocal}
+      mkdir={data.mkdir}
+      createFile={data.createFile}
+      rename={data.rename}
+      remove={data.remove}
+      chmod={data.chmod}
+      sessionId={mode === "remote" ? remote.sessionId : null}
+      editRemoteFile={editRemoteFile}
+      openRemoteFile={openRemoteFile}
     />
   );
 }

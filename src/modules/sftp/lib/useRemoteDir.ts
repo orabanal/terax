@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getSshPassword, type SshHost } from "@/modules/ssh/store";
-import type { SftpEntry } from "./types";
+import type { DirMutations, SftpEntry } from "./types";
 
 type SftpDirEntry = {
   name: string;
@@ -30,6 +30,7 @@ export type RemoteDir = {
   error: string | null;
   connected: boolean;
   hostName: string | null;
+  sessionId: number | null;
   canGoBack: boolean;
   canGoForward: boolean;
   navigate: (path: string) => void;
@@ -43,7 +44,7 @@ export type RemoteDir = {
   disconnect: () => void;
   showHidden: boolean;
   toggleHidden: () => void;
-};
+} & DirMutations;
 
 function joinPath(parent: string, name: string): string {
   const base = parent.endsWith("/") ? parent.slice(0, -1) : parent;
@@ -239,6 +240,63 @@ export function useRemoteDir(): RemoteDir {
     setIndex(-1);
   }, []);
 
+  const mkdir = useCallback(
+    async (name: string) => {
+      const sid = sessionIdRef.current;
+      if (sid == null) return;
+      await invoke("sftp_mkdir", { id: sid, path: joinPath(path, name) });
+      refresh();
+    },
+    [path, refresh],
+  );
+
+  // Creating empty files over SFTP is not supported (no backend command).
+  const createFile = useCallback(async (_name: string) => {}, []);
+
+  const rename = useCallback(
+    async (oldName: string, newName: string) => {
+      const sid = sessionIdRef.current;
+      if (sid == null) return;
+      await invoke("sftp_rename", {
+        id: sid,
+        from: joinPath(path, oldName),
+        to: joinPath(path, newName),
+      });
+      refresh();
+    },
+    [path, refresh],
+  );
+
+  const remove = useCallback(
+    async (entries: SftpEntry[]) => {
+      const sid = sessionIdRef.current;
+      if (sid == null) return;
+      for (const entry of entries) {
+        await invoke("sftp_remove", {
+          id: sid,
+          path: joinPath(path, entry.name),
+          isDir: entry.kind === "dir",
+        });
+      }
+      refresh();
+    },
+    [path, refresh],
+  );
+
+  const chmod = useCallback(
+    async (name: string, mode: number) => {
+      const sid = sessionIdRef.current;
+      if (sid == null) return;
+      await invoke("sftp_chmod", {
+        id: sid,
+        path: joinPath(path, name),
+        mode,
+      });
+      refresh();
+    },
+    [path, refresh],
+  );
+
   return {
     path,
     entries,
@@ -246,6 +304,7 @@ export function useRemoteDir(): RemoteDir {
     error,
     connected: sessionId != null,
     hostName,
+    sessionId,
     canGoBack: index > 0,
     canGoForward: index >= 0 && index < history.length - 1,
     navigate,
@@ -259,5 +318,10 @@ export function useRemoteDir(): RemoteDir {
     disconnect,
     showHidden,
     toggleHidden,
+    mkdir,
+    createFile,
+    rename,
+    remove,
+    chmod,
   };
 }

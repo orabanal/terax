@@ -183,10 +183,13 @@ pub fn run() {
             fs::file::fs_write_file,
             fs::file::fs_stat,
             fs::file::fs_canonicalize,
+            fs::mutate::fs_open,
+            fs::mutate::fs_reveal,
             fs::mutate::fs_create_file,
             fs::mutate::fs_create_dir,
             fs::mutate::fs_rename,
             fs::mutate::fs_delete,
+            fs::mutate::fs_chmod,
             fs::watch::fs_watch_add,
             fs::watch::fs_watch_remove,
             fs::search::fs_search,
@@ -241,6 +244,13 @@ pub fn run() {
             sftp::sftp_open,
             sftp::sftp_list_dir,
             sftp::sftp_close,
+            sftp::sftp_mkdir,
+            sftp::sftp_rename,
+            sftp::sftp_remove,
+            sftp::sftp_chmod,
+            sftp::sftp_read_file,
+            sftp::sftp_write_file,
+            sftp::sftp_download_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

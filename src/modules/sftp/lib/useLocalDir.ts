@@ -1,7 +1,7 @@
 import { currentWorkspaceEnv } from "@/modules/workspace";
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { SftpEntry } from "./types";
+import type { DirMutations, SftpEntry } from "./types";
 
 /** Mirror of the backend `DirEntry` returned by `fs_read_dir`. */
 type FsDirEntry = {
@@ -31,7 +31,7 @@ export type LocalDir = {
    *  global explorer preference. */
   showHidden: boolean;
   toggleHidden: () => void;
-};
+} & DirMutations;
 
 /** Joins a POSIX path segment, tolerating a trailing slash on the parent. */
 function joinPath(parent: string, name: string): string {
@@ -153,6 +153,65 @@ export function useLocalDir(initialPath: string | null): LocalDir {
     setPath(history[next]);
   }, [index, history]);
 
+  const mkdir = useCallback(
+    async (name: string) => {
+      await invoke("fs_create_dir", {
+        path: joinPath(path, name),
+        workspace: currentWorkspaceEnv(),
+      });
+      refresh();
+    },
+    [path, refresh],
+  );
+
+  const createFile = useCallback(
+    async (name: string) => {
+      await invoke("fs_create_file", {
+        path: joinPath(path, name),
+        workspace: currentWorkspaceEnv(),
+      });
+      refresh();
+    },
+    [path, refresh],
+  );
+
+  const rename = useCallback(
+    async (oldName: string, newName: string) => {
+      await invoke("fs_rename", {
+        from: joinPath(path, oldName),
+        to: joinPath(path, newName),
+        workspace: currentWorkspaceEnv(),
+      });
+      refresh();
+    },
+    [path, refresh],
+  );
+
+  const remove = useCallback(
+    async (entries: SftpEntry[]) => {
+      for (const entry of entries) {
+        await invoke("fs_delete", {
+          path: joinPath(path, entry.name),
+          workspace: currentWorkspaceEnv(),
+        });
+      }
+      refresh();
+    },
+    [path, refresh],
+  );
+
+  const chmod = useCallback(
+    async (name: string, mode: number) => {
+      await invoke("fs_chmod", {
+        path: joinPath(path, name),
+        mode,
+        workspace: currentWorkspaceEnv(),
+      });
+      refresh();
+    },
+    [path, refresh],
+  );
+
   return {
     path,
     entries,
@@ -169,5 +228,10 @@ export function useLocalDir(initialPath: string | null): LocalDir {
     refresh,
     showHidden,
     toggleHidden,
+    mkdir,
+    createFile,
+    rename,
+    remove,
+    chmod,
   };
 }

@@ -15,6 +15,7 @@ type Props = {
   pendingCloseTab: number | null;
   onCancelClose: () => void;
   onConfirmClose: () => void;
+  onSaveAndClose: () => void;
   pendingTerminalCloseTab: number | null;
   onCancelTerminalClose: () => void;
   onConfirmTerminalClose: () => void;
@@ -29,6 +30,7 @@ export function CloseDialogs({
   pendingCloseTab,
   onCancelClose,
   onConfirmClose,
+  onSaveAndClose,
   pendingTerminalCloseTab,
   onCancelTerminalClose,
   onConfirmTerminalClose,
@@ -59,6 +61,12 @@ export function CloseDialogs({
             </AlertDialogCancel>
             <AlertDialogAction onClick={onConfirmClose}>
               Close Anyway
+            </AlertDialogAction>
+            <AlertDialogAction
+              onClick={onSaveAndClose}
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              Save
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

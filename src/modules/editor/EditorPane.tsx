@@ -45,6 +45,8 @@ export type EditorPaneHandle = {
   /** Apply CodeMirror's undo/redo commands. */
   undo: () => void;
   redo: () => void;
+  /** Save the current buffer to disk. */
+  save: () => Promise<void>;
 };
 
 type Props = {
@@ -263,6 +265,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(
           const view = cmRef.current?.view;
           if (view) redo(view);
         },
+        save: () => saveRef.current(),
       }),
       [path],
     );

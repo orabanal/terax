@@ -35,6 +35,7 @@ type Props = {
   onAiDiffReject: AiDiffStackProps["onReject"];
   onOpenCommitFile: GitHistoryStackProps["onOpenCommitFile"];
   onGitHistorySearchHandle: GitHistoryStackProps["onSearchHandle"];
+  onOpenFile?: (path: string) => void;
 };
 
 /**
@@ -63,6 +64,7 @@ export function WorkspaceSurface({
   onAiDiffReject,
   onOpenCommitFile,
   onGitHistorySearchHandle,
+  onOpenFile,
 }: Props) {
   const kind = activeTab?.kind;
   const isTerminalTab = kind === "terminal";
@@ -178,7 +180,7 @@ export function WorkspaceSurface({
         )}
         aria-hidden={!isSftpTab}
       >
-        <SftpStack tabs={tabs} />
+        <SftpStack tabs={tabs} onOpenFile={onOpenFile} />
       </div>
     </div>
   );

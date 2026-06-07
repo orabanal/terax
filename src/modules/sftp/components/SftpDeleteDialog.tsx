@@ -12,12 +12,16 @@ import {
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Names targeted for deletion. */
   names?: string[];
+  onConfirm?: () => void;
 };
 
-/** Confirms deletion of one or more entries. Milestone 1: static, no delete. */
-export function SftpDeleteDialog({ open, onOpenChange, names = [] }: Props) {
+export function SftpDeleteDialog({
+  open,
+  onOpenChange,
+  names = [],
+  onConfirm,
+}: Props) {
   const count = names.length;
   const summary =
     count === 1 ? names[0] : count > 1 ? `${count} items` : "selected items";
@@ -38,7 +42,10 @@ export function SftpDeleteDialog({ open, onOpenChange, names = [] }: Props) {
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90">
+          <AlertDialogAction
+            className="bg-destructive text-white hover:bg-destructive/90"
+            onClick={onConfirm}
+          >
             Delete
           </AlertDialogAction>
         </AlertDialogFooter>

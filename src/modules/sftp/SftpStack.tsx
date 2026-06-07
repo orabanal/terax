@@ -5,6 +5,7 @@ import { SftpView } from "./SftpView";
 
 type Props = {
   tabs: Tab[];
+  onOpenFile?: (path: string) => void;
 };
 
 /**
@@ -12,7 +13,7 @@ type Props = {
  * it returns null when no SFTP tab exists, and WorkspaceSurface toggles its
  * visibility so the view keeps its mounted state across tab switches.
  */
-export function SftpStack({ tabs }: Props) {
+export function SftpStack({ tabs, onOpenFile }: Props) {
   const exists = tabs.some((t) => t.kind === "sftp");
   const [now] = useState(() => Date.now());
   const [home, setHome] = useState<string | null>(null);
@@ -30,5 +31,5 @@ export function SftpStack({ tabs }: Props) {
   }, []);
 
   if (!exists) return null;
-  return <SftpView now={now} home={home} />;
+  return <SftpView now={now} home={home} onOpenFile={onOpenFile} />;
 }

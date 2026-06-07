@@ -5,11 +5,7 @@ import {
 } from "@/components/ui/resizable";
 import { useCallback, useEffect, useState } from "react";
 import { useSshHostsStore, type SshHost } from "@/modules/ssh/store";
-import { SftpConflictDialog } from "./components/SftpConflictDialog";
 import { SftpConnection } from "./components/SftpConnection";
-import { SftpDeleteDialog } from "./components/SftpDeleteDialog";
-import { SftpNameDialog } from "./components/SftpNameDialog";
-import { SftpPermissionsDialog } from "./components/SftpPermissionsDialog";
 import { SftpSubTabs } from "./components/SftpSubTabs";
 import { SftpTransferQueue } from "./components/SftpTransferQueue";
 import { MOCK_TRANSFERS } from "./lib/mockData";
@@ -26,7 +22,7 @@ function newConnId() {
   return `conn-${nextConnId++}`;
 }
 
-export function SftpView({ now, home }: { now: number; home: string | null }) {
+export function SftpView({ now, home, onOpenFile }: { now: number; home: string | null; onOpenFile?: (path: string) => void }) {
   const { hosts, init } = useSshHostsStore();
   useEffect(() => {
     void init();
@@ -136,6 +132,7 @@ export function SftpView({ now, home }: { now: number; home: string | null }) {
               {leftConns.map((conn, i) => (
                 <SftpConnection
                   key={conn.id}
+                  connKey={conn.id}
                   mode={conn.mode}
                   home={home}
                   visible={i === leftActive}
@@ -146,6 +143,7 @@ export function SftpView({ now, home }: { now: number; home: string | null }) {
                   onHostSelect={(h) => handleHostSelect("left", h)}
                   onLocal={() => handleLocal("left")}
                   connectToHost={getConnectHost(conn)}
+                  onOpenFile={onOpenFile}
                 />
               ))}
             </div>
@@ -165,6 +163,7 @@ export function SftpView({ now, home }: { now: number; home: string | null }) {
               {rightConns.map((conn, i) => (
                 <SftpConnection
                   key={conn.id}
+                  connKey={conn.id}
                   mode={conn.mode}
                   home={home}
                   visible={i === rightActive}
@@ -175,6 +174,7 @@ export function SftpView({ now, home }: { now: number; home: string | null }) {
                   onHostSelect={(h) => handleHostSelect("right", h)}
                   onLocal={() => handleLocal("right")}
                   connectToHost={getConnectHost(conn)}
+                  onOpenFile={onOpenFile}
                 />
               ))}
             </div>
@@ -183,26 +183,6 @@ export function SftpView({ now, home }: { now: number; home: string | null }) {
       </ResizablePanelGroup>
 
       <SftpTransferQueue transfers={MOCK_TRANSFERS} />
-
-      <SftpDialogs now={now} />
     </div>
-  );
-}
-
-function SftpDialogs({ now }: { now: number }) {
-  const [noop] = useState(false);
-  return (
-    <>
-      <SftpNameDialog open={noop} onOpenChange={() => {}} mode="new-folder" />
-      <SftpPermissionsDialog open={noop} onOpenChange={() => {}} />
-      <SftpDeleteDialog open={noop} onOpenChange={() => {}} />
-      <SftpConflictDialog
-        open={noop}
-        onOpenChange={() => {}}
-        now={now}
-        existing={{ size: 1536, mtime: now - 86_400_000 }}
-        incoming={{ size: 2048, mtime: now }}
-      />
-    </>
   );
 }

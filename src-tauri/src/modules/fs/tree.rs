@@ -19,6 +19,12 @@ pub struct DirEntry {
     pub size: u64,
     /// Milliseconds since UNIX epoch; 0 if unavailable.
     pub mtime: u64,
+    /// Unix permission bits (e.g. 0o755). None on Windows.
+    #[cfg(unix)]
+    pub mode: Option<u32>,
+    #[cfg(not(unix))]
+    #[serde(skip_serializing)]
+    pub mode: Option<u32>,
 }
 
 /// Lists immediate children of `path`. Dirs first, then files, each sorted
@@ -72,11 +78,20 @@ pub fn fs_read_dir(
                 .map(|d| d.as_millis() as u64)
                 .unwrap_or(0);
 
+            #[cfg(unix)]
+            let mode = {
+                use std::os::unix::fs::MetadataExt;
+                Some(meta.mode())
+            };
+            #[cfg(not(unix))]
+            let mode: Option<u32> = None;
+
             Some(DirEntry {
                 name,
                 kind,
                 size,
                 mtime,
+                mode,
             })
         })
         .collect();

@@ -4,6 +4,7 @@ use std::sync::{Arc, RwLock};
 
 use russh::Disconnect;
 use russh_sftp::client::SftpSession;
+use russh_sftp::protocol::FileAttributes;
 use serde::Serialize;
 
 use crate::modules::ssh;
@@ -162,4 +163,201 @@ pub async fn sftp_close(
         .await;
 
     Ok(())
+}
+
+/// Recursively delete a directory and all its contents via SFTP.
+/// `remove_dir` only works on empty directories, so we walk the tree first.
+async fn sftp_remove_recursive(sftp: &SftpSession, path: &str) -> Result<(), String> {
+    let read_dir = sftp
+        .read_dir(path)
+        .await
+        .map_err(format_sftp_error)?;
+
+    for entry in read_dir {
+        let name = entry.file_name();
+        if name == "." || name == ".." {
+            continue;
+        }
+        let child = format!("{path}/{name}");
+        if entry.file_type().is_dir() {
+            Box::pin(sftp_remove_recursive(sftp, &child)).await?;
+        } else {
+            sftp.remove_file(&child).await.map_err(format_sftp_error)?;
+        }
+    }
+
+    sftp.remove_dir(path).await.map_err(format_sftp_error)
+}
+
+#[tauri::command]
+pub async fn sftp_mkdir(
+    state: tauri::State<'_, SftpState>,
+    id: u32,
+    path: String,
+) -> Result<(), String> {
+    let sftp = {
+        let sessions = state.sessions.read().unwrap();
+        let handle = sessions
+            .get(&id)
+            .ok_or_else(|| format!("no sftp session {id}"))?;
+        handle.sftp.clone()
+    };
+
+    sftp.create_dir(&path).await.map_err(format_sftp_error)
+}
+
+#[tauri::command]
+pub async fn sftp_rename(
+    state: tauri::State<'_, SftpState>,
+    id: u32,
+    from: String,
+    to: String,
+) -> Result<(), String> {
+    let sftp = {
+        let sessions = state.sessions.read().unwrap();
+        let handle = sessions
+            .get(&id)
+            .ok_or_else(|| format!("no sftp session {id}"))?;
+        handle.sftp.clone()
+    };
+
+    sftp.rename(&from, &to).await.map_err(format_sftp_error)
+}
+
+#[tauri::command]
+pub async fn sftp_remove(
+    state: tauri::State<'_, SftpState>,
+    id: u32,
+    path: String,
+    is_dir: bool,
+) -> Result<(), String> {
+    let sftp = {
+        let sessions = state.sessions.read().unwrap();
+        let handle = sessions
+            .get(&id)
+            .ok_or_else(|| format!("no sftp session {id}"))?;
+        handle.sftp.clone()
+    };
+
+    if is_dir {
+        sftp_remove_recursive(&sftp, &path).await
+    } else {
+        sftp.remove_file(&path).await.map_err(format_sftp_error)
+    }
+}
+
+#[tauri::command]
+pub async fn sftp_chmod(
+    state: tauri::State<'_, SftpState>,
+    id: u32,
+    path: String,
+    mode: u32,
+) -> Result<(), String> {
+    let sftp = {
+        let sessions = state.sessions.read().unwrap();
+        let handle = sessions
+            .get(&id)
+            .ok_or_else(|| format!("no sftp session {id}"))?;
+        handle.sftp.clone()
+    };
+
+    let mut attrs = FileAttributes::empty();
+    attrs.permissions = Some(mode);
+    sftp.set_metadata(&path, attrs).await.map_err(format_sftp_error)
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum SftpReadResult {
+    Text { content: String, size: u64 },
+    Binary { size: u64 },
+}
+
+const SFTP_MAX_READ_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
+const SFTP_BINARY_SNIFF_BYTES: usize = 8192;
+
+#[tauri::command]
+pub async fn sftp_read_file(
+    state: tauri::State<'_, SftpState>,
+    id: u32,
+    path: String,
+) -> Result<SftpReadResult, String> {
+    let sftp = {
+        let sessions = state.sessions.read().unwrap();
+        let handle = sessions
+            .get(&id)
+            .ok_or_else(|| format!("no sftp session {id}"))?;
+        handle.sftp.clone()
+    };
+
+    let bytes = sftp.read(&path).await.map_err(format_sftp_error)?;
+    let size = bytes.len() as u64;
+
+    if size > SFTP_MAX_READ_BYTES {
+        return Ok(SftpReadResult::Binary { size });
+    }
+
+    let sniff_len = bytes.len().min(SFTP_BINARY_SNIFF_BYTES);
+    if bytes[..sniff_len].contains(&0) {
+        return Ok(SftpReadResult::Binary { size });
+    }
+
+    match String::from_utf8(bytes) {
+        Ok(content) => Ok(SftpReadResult::Text { content, size }),
+        Err(_) => Ok(SftpReadResult::Binary { size }),
+    }
+}
+
+#[tauri::command]
+pub async fn sftp_write_file(
+    state: tauri::State<'_, SftpState>,
+    id: u32,
+    path: String,
+    content: String,
+) -> Result<(), String> {
+    let sftp = {
+        let sessions = state.sessions.read().unwrap();
+        let handle = sessions
+            .get(&id)
+            .ok_or_else(|| format!("no sftp session {id}"))?;
+        handle.sftp.clone()
+    };
+
+    sftp.write(&path, content.as_bytes())
+        .await
+        .map_err(format_sftp_error)
+}
+
+/// Downloads a remote file and saves it to a local path (raw bytes).
+/// Used for non-text files (images, PDFs, etc.) that need to be opened
+/// with the OS default application.
+#[tauri::command]
+pub async fn sftp_download_file(
+    state: tauri::State<'_, SftpState>,
+    id: u32,
+    remote_path: String,
+    local_path: String,
+) -> Result<(), String> {
+    let sftp = {
+        let sessions = state.sessions.read().unwrap();
+        let handle = sessions
+            .get(&id)
+            .ok_or_else(|| format!("no sftp session {id}"))?;
+        handle.sftp.clone()
+    };
+
+    let bytes = sftp
+        .read(&remote_path)
+        .await
+        .map_err(format_sftp_error)?;
+
+    // Ensure parent directory exists.
+    if let Some(parent) = std::path::Path::new(&local_path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    std::fs::write(&local_path, &bytes).map_err(|e| {
+        log::warn!("sftp_download_file write failed: {e}");
+        e.to_string()
+    })
 }

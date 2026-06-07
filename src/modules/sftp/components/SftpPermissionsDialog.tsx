@@ -8,15 +8,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { useCallback, useEffect, useState } from "react";
 import { formatOctal } from "../lib/format";
 
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Target name shown in the title. */
   fileName?: string;
-  /** Current mode bits (defaults to 0o644 for the static shell). */
   mode?: number;
+  onApply?: (mode: number) => void;
 };
 
 const ROLES = [
@@ -31,14 +31,30 @@ const PERMS = [
   { key: "x", label: "Execute", bit: 1 },
 ] as const;
 
-/** chmod editor. Milestone 1: renders the matrix from a static mode, no apply. */
 export function SftpPermissionsDialog({
   open,
   onOpenChange,
   fileName = "file.txt",
   mode = 0o644,
+  onApply,
 }: Props) {
-  const has = (shift: number, bit: number) => ((mode >> shift) & bit) === bit;
+  const [current, setCurrent] = useState(mode);
+
+  useEffect(() => {
+    if (open) setCurrent(mode);
+  }, [open, mode]);
+
+  const toggle = useCallback((shift: number, bit: number) => {
+    setCurrent((prev) => prev ^ (bit << shift));
+  }, []);
+
+  const has = (shift: number, bit: number) =>
+    ((current >> shift) & bit) === bit;
+
+  const handleApply = useCallback(() => {
+    onApply?.(current);
+    onOpenChange(false);
+  }, [current, onApply, onOpenChange]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -65,7 +81,10 @@ export function SftpPermissionsDialog({
               <span className="text-xs font-medium">{role.label}</span>
               {PERMS.map((p) => (
                 <div key={p.key} className="flex justify-center">
-                  <Checkbox checked={has(role.shift, p.bit)} />
+                  <Checkbox
+                    checked={has(role.shift, p.bit)}
+                    onCheckedChange={() => toggle(role.shift, p.bit)}
+                  />
                 </div>
               ))}
             </div>
@@ -74,14 +93,16 @@ export function SftpPermissionsDialog({
 
         <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2 text-xs">
           <span className="text-muted-foreground">Octal</span>
-          <span className="font-mono tabular-nums">{formatOctal(mode)}</span>
+          <span className="font-mono tabular-nums">{formatOctal(current)}</span>
         </div>
 
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button size="sm">Apply</Button>
+          <Button size="sm" onClick={handleApply}>
+            Apply
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

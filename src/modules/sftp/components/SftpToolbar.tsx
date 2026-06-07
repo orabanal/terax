@@ -13,10 +13,11 @@ import {
   ArrowLeft01Icon,
   ArrowRight01Icon,
   ArrowUp01Icon,
+  Bookmark01Icon,
   Bookmark02Icon,
-  BookmarkAdd02Icon,
   Cancel01Icon,
   EyeIcon,
+  FileAddIcon,
   FolderAddIcon,
   Home09Icon,
   Refresh01Icon,
@@ -30,31 +31,27 @@ type Props = {
   path: string;
   filter: string;
   onFilterChange: (value: string) => void;
-  /** Saved paths for quick navigation. */
   bookmarks?: SftpBookmark[];
-  /** Whether the current path is already bookmarked (drives the toggle). */
   isBookmarked?: boolean;
   onToggleBookmark?: () => void;
   onSelectBookmark?: (path: string) => void;
   onRemoveBookmark?: (path: string) => void;
-  /** Inert in Milestone 1 — wired in later milestones. */
   onBack?: () => void;
   onForward?: () => void;
   onUp?: () => void;
   onHome?: () => void;
   onRefresh?: () => void;
   onNewFolder?: () => void;
+  onNewFile?: () => void;
   onNavigateSegment?: (path: string) => void;
   canGoBack?: boolean;
   canGoForward?: boolean;
-  /** Pane-local hidden-files toggle (the eye button). */
   showHidden?: boolean;
   onToggleHidden?: () => void;
 };
 
 type Segment = { label: string; path: string };
 
-/** Splits an absolute POSIX path into clickable breadcrumb segments. */
 function toSegments(path: string): Segment[] {
   const parts = path.split("/").filter(Boolean);
   const segments: Segment[] = [{ label: "/", path: "/" }];
@@ -107,6 +104,7 @@ export function SftpToolbar({
   onHome,
   onRefresh,
   onNewFolder,
+  onNewFile,
   onNavigateSegment,
   canGoBack,
   canGoForward,
@@ -139,6 +137,11 @@ export function SftpToolbar({
           title="New folder"
           onClick={onNewFolder}
         />
+        <NavButton
+          icon={FileAddIcon}
+          title="New file"
+          onClick={onNewFile}
+        />
         <Button
           variant="ghost"
           size="icon"
@@ -157,28 +160,11 @@ export function SftpToolbar({
             strokeWidth={2}
           />
         </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-6 shrink-0 text-muted-foreground hover:text-foreground disabled:opacity-40"
-          onClick={onToggleBookmark}
-          disabled={isBookmarked}
-          title={
-            isBookmarked
-              ? "Folder already bookmarked"
-              : "Bookmark this folder"
-          }
-          aria-label={
-            isBookmarked
-              ? "Folder already bookmarked"
-              : "Bookmark this folder"
-          }
-        >
-          <HugeiconsIcon icon={BookmarkAdd02Icon} size={13} strokeWidth={2} />
-        </Button>
         <BookmarksMenu
           bookmarks={bookmarks}
           currentPath={path}
+          isBookmarked={isBookmarked}
+          onToggle={onToggleBookmark}
           onSelect={onSelectBookmark}
           onRemove={onRemoveBookmark}
         />
@@ -218,11 +204,15 @@ function basename(path: string): string {
 function BookmarksMenu({
   bookmarks,
   currentPath,
+  isBookmarked,
+  onToggle,
   onSelect,
   onRemove,
 }: {
   bookmarks: SftpBookmark[];
   currentPath: string;
+  isBookmarked: boolean;
+  onToggle?: () => void;
   onSelect?: (path: string) => void;
   onRemove?: (path: string) => void;
 }) {
@@ -232,50 +222,65 @@ function BookmarksMenu({
         <Button
           variant="ghost"
           size="icon"
-          className="size-6 shrink-0 text-muted-foreground hover:text-foreground"
+          className={cn(
+            "size-6 shrink-0 hover:text-foreground",
+            isBookmarked ? "text-primary" : "text-muted-foreground",
+          )}
           title="Bookmarks"
           aria-label="Bookmarks"
         >
-          <HugeiconsIcon icon={Bookmark02Icon} size={13} strokeWidth={2} />
+          <HugeiconsIcon
+            icon={isBookmarked ? Bookmark01Icon : Bookmark02Icon}
+            size={13}
+            strokeWidth={2}
+          />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-56 max-h-72">
-        <DropdownMenuLabel>Bookmarks</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        {bookmarks.length === 0 ? (
-          <DropdownMenuItem disabled>No bookmarks yet</DropdownMenuItem>
-        ) : (
-          bookmarks.map((b) => (
-            <DropdownMenuItem
-              key={b.path}
-              onSelect={() => onSelect?.(b.path)}
-              className={cn(b.path === currentPath && "text-primary")}
-            >
-              <HugeiconsIcon
-                icon={Bookmark02Icon}
-                size={14}
-                strokeWidth={1.75}
-              />
-              <span className="flex min-w-0 flex-1 flex-col">
-                <span className="truncate">{basename(b.path)}</span>
-                <span className="truncate text-[10px] text-muted-foreground">
-                  {b.path}
-                </span>
-              </span>
-              <span
-                role="button"
-                aria-label="Remove bookmark"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onRemove?.(b.path);
-                }}
-                className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+        <DropdownMenuItem onSelect={onToggle}>
+          <HugeiconsIcon
+            icon={isBookmarked ? Bookmark01Icon : Bookmark02Icon}
+            size={14}
+            strokeWidth={1.75}
+          />
+          <span>{isBookmarked ? "Remove bookmark" : "Add bookmark"}</span>
+        </DropdownMenuItem>
+        {bookmarks.length > 0 && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>Saved</DropdownMenuLabel>
+            {bookmarks.map((b) => (
+              <DropdownMenuItem
+                key={b.path}
+                onSelect={() => onSelect?.(b.path)}
+                className={cn(b.path === currentPath && "text-primary")}
               >
-                <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
-              </span>
-            </DropdownMenuItem>
-          ))
+                <HugeiconsIcon
+                  icon={Bookmark01Icon}
+                  size={14}
+                  strokeWidth={1.75}
+                />
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate">{basename(b.path)}</span>
+                  <span className="truncate text-[10px] text-muted-foreground">
+                    {b.path}
+                  </span>
+                </span>
+                <span
+                  role="button"
+                  aria-label="Remove bookmark"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onRemove?.(b.path);
+                  }}
+                  className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
+                </span>
+              </DropdownMenuItem>
+            ))}
+          </>
         )}
       </DropdownMenuContent>
     </DropdownMenu>

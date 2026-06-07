@@ -1,5 +1,59 @@
 use crate::modules::workspace::{resolve_path, WorkspaceEnv};
 
+/// Opens a file or directory with the OS default application.
+#[tauri::command]
+pub fn fs_open(path: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/c", "start", "", &path])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Reveals a file in the OS file manager (Finder / Explorer / xdg-open dir).
+#[tauri::command]
+pub fn fs_reveal(path: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .args(["-R", &path])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(std::path::Path::new(&path).parent().unwrap_or(std::path::Path::new("/")))
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .args(["/select,", &path])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// Creates a new empty file. Fails if the file already exists.
 #[tauri::command]
 pub fn fs_create_file(path: String, workspace: Option<WorkspaceEnv>) -> Result<(), String> {
@@ -50,6 +104,31 @@ pub fn fs_rename(from: String, to: String, workspace: Option<WorkspaceEnv>) -> R
         );
         e.to_string()
     })
+}
+
+/// Changes file/directory permissions. Unix-only; on Windows this is a no-op
+/// that returns Ok(()) since NTFS permissions are fundamentally different.
+#[cfg(unix)]
+#[tauri::command]
+pub fn fs_chmod(path: String, mode: u32, workspace: Option<WorkspaceEnv>) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let workspace = WorkspaceEnv::from_option(workspace);
+    let p = resolve_path(&path, &workspace);
+    if !p.exists() {
+        return Err(format!("not found: {}", p.display()));
+    }
+    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(mode)).map_err(|e| {
+        log::debug!("fs_chmod({}) failed: {e}", p.display());
+        e.to_string()
+    })
+}
+
+#[cfg(windows)]
+#[tauri::command]
+pub fn fs_chmod(path: String, _mode: u32, workspace: Option<WorkspaceEnv>) -> Result<(), String> {
+    let _ = (path, workspace);
+    Ok(())
 }
 
 /// Deletes a file or directory (recursively for dirs). Callers are

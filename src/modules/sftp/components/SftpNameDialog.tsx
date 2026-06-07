@@ -7,13 +7,14 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useCallback, useEffect, useState } from "react";
 
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** "new-folder" | "new-file" | "rename" — drives title and action label. */
   mode?: "new-folder" | "new-file" | "rename";
   initialValue?: string;
+  onSubmit?: (name: string) => void;
 };
 
 const TITLES = {
@@ -22,14 +23,34 @@ const TITLES = {
   rename: { title: "Rename", action: "Rename", placeholder: "New name" },
 } as const;
 
-/** New folder / new file / rename prompt. Milestone 1: static, no commit. */
 export function SftpNameDialog({
   open,
   onOpenChange,
   mode = "new-folder",
   initialValue = "",
+  onSubmit,
 }: Props) {
   const cfg = TITLES[mode];
+  const [value, setValue] = useState(initialValue);
+
+  useEffect(() => {
+    if (open) setValue(initialValue);
+  }, [open, initialValue]);
+
+  const handleSubmit = useCallback(() => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    onSubmit?.(trimmed);
+    onOpenChange(false);
+  }, [value, onSubmit, onOpenChange]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter") handleSubmit();
+    },
+    [handleSubmit],
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm">
@@ -37,15 +58,20 @@ export function SftpNameDialog({
           <DialogTitle>{cfg.title}</DialogTitle>
         </DialogHeader>
         <Input
-          defaultValue={initialValue}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={handleKeyDown}
           placeholder={cfg.placeholder}
           className="h-8 text-sm"
+          autoFocus
         />
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button size="sm">{cfg.action}</Button>
+          <Button size="sm" onClick={handleSubmit}>
+            {cfg.action}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

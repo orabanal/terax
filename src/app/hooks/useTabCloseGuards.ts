@@ -1,18 +1,15 @@
 import { useCallback, useState } from "react";
 import { leafHasForegroundProcess, leafIds } from "@/modules/terminal";
 import type { Tab } from "@/modules/tabs";
+import type { EditorPaneHandle } from "@/modules/editor";
 
 type Params = {
   tabs: Tab[];
   disposeTab: (id: number) => void;
+  editorRefs: React.RefObject<Map<number, EditorPaneHandle>>;
 };
 
-/**
- * Guards tab closing: dirty editors and terminals with a live foreground
- * process route through a confirmation dialog instead of closing immediately.
- * Owns the three pending-close states the dialogs render from.
- */
-export function useTabCloseGuards({ tabs, disposeTab }: Params) {
+export function useTabCloseGuards({ tabs, disposeTab, editorRefs }: Params) {
   const [pendingCloseTab, setPendingCloseTab] = useState<number | null>(null);
   const [pendingTerminalCloseTab, setPendingTerminalCloseTab] = useState<
     number | null
@@ -47,6 +44,16 @@ export function useTabCloseGuards({ tabs, disposeTab }: Params) {
       setPendingCloseTab(null);
     }
   }, [pendingCloseTab, disposeTab]);
+
+  const saveAndClose = useCallback(async () => {
+    if (pendingCloseTab === null) return;
+    const handle = editorRefs.current?.get(pendingCloseTab);
+    if (handle) {
+      await handle.save();
+    }
+    disposeTab(pendingCloseTab);
+    setPendingCloseTab(null);
+  }, [pendingCloseTab, disposeTab, editorRefs]);
 
   const cancelClose = useCallback(() => {
     setPendingCloseTab(null);
@@ -95,6 +102,7 @@ export function useTabCloseGuards({ tabs, disposeTab }: Params) {
     pendingDeleteTabs,
     handleClose,
     confirmClose,
+    saveAndClose,
     cancelClose,
     confirmTerminalClose,
     cancelTerminalClose,
