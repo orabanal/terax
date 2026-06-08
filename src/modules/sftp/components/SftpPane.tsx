@@ -12,6 +12,13 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import {
+  DEFAULT_SFTP_SORT,
+  nextSftpSort,
+  sortSftpEntries,
+  type SftpSortColumn,
+  type SftpSortState,
+} from "@/modules/sftp/lib/sortEntries";
 import type { DirMutations, SftpEntry, SftpPaneSide, SftpSide } from "../lib/types";
 import type { SshHost } from "@/modules/ssh/store";
 import { SftpDragContext } from "../lib/SftpDragContext";
@@ -94,6 +101,49 @@ type Props = {
   onLocal?: () => void;
 } & DirMutations;
 
+type SortHeaderProps = {
+  column: SftpSortColumn;
+  label: string;
+  sort: SftpSortState;
+  className?: string;
+  align?: "left" | "right";
+  onSort: (column: SftpSortColumn) => void;
+};
+
+function SortHeader({
+  column,
+  label,
+  sort,
+  className,
+  align = "left",
+  onSort,
+}: SortHeaderProps) {
+  const active = sort.column === column;
+  const ariaSort = active
+    ? sort.direction === "asc"
+      ? "ascending"
+      : "descending"
+    : "none";
+
+  return (
+    <div role="columnheader" aria-sort={ariaSort} className={className}>
+      <button
+        type="button"
+        onClick={() => onSort(column)}
+        className={cn(
+          "flex h-full w-full items-center gap-1 rounded-sm text-left hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+          align === "right" && "justify-end text-right",
+        )}
+      >
+        <span className="truncate">{label}</span>
+        <span className="w-2 text-[10px] text-muted-foreground">
+          {active ? (sort.direction === "asc" ? "↑" : "↓") : ""}
+        </span>
+      </button>
+    </div>
+  );
+}
+
 export function SftpPane({
   connKey,
   side,
@@ -140,6 +190,7 @@ export function SftpPane({
   const [inlineEdit, setInlineEdit] = useState<InlineEditState>(null);
   const [modal, setModal] = useState<ModalDialogState>({ kind: "none" });
   const [remoteLoading, setRemoteLoading] = useState(false);
+  const [sort, setSort] = useState<SftpSortState>(DEFAULT_SFTP_SORT);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const drag = useContext(SftpDragContext);
@@ -195,12 +246,7 @@ export function SftpPane({
     const list = f
       ? entries.filter((e) => e.name.toLowerCase().includes(f))
       : entries;
-    const sortedEntries = [...list].sort((a, b) => {
-      const ad = a.kind === "dir" ? 0 : 1;
-      const bd = b.kind === "dir" ? 0 : 1;
-      if (ad !== bd) return ad - bd;
-      return a.name.localeCompare(b.name);
-    });
+    const sortedEntries = sortSftpEntries(list, sort);
 
     const result = isRoot ? sortedEntries : [PARENT_ENTRY, ...sortedEntries];
 
@@ -216,7 +262,7 @@ export function SftpPane({
     }
 
     return result;
-  }, [entries, filter, isError, isRoot, inlineEdit]);
+  }, [entries, filter, isError, isRoot, inlineEdit, sort]);
 
   const virtualizer = useVirtualizer({
     count: sorted.length,
@@ -526,10 +572,37 @@ export function SftpPane({
           />
 
           <div className="flex h-6 shrink-0 items-center gap-2 border-b border-border/60 px-2 text-[11px] font-medium text-muted-foreground">
-            <span className="min-w-0 flex-1">Name</span>
-            <span className="w-20 shrink-0 text-right">Size</span>
-            <span className="w-28 shrink-0 text-right">Modified</span>
-            <span className="w-24 shrink-0 text-right">Permissions</span>
+            <SortHeader
+              column="name"
+              label="Name"
+              sort={sort}
+              onSort={(column) => setSort((current) => nextSftpSort(current, column))}
+              className="min-w-0 flex-1"
+            />
+            <SortHeader
+              column="size"
+              label="Size"
+              sort={sort}
+              onSort={(column) => setSort((current) => nextSftpSort(current, column))}
+              className="w-20 shrink-0"
+              align="right"
+            />
+            <SortHeader
+              column="mtime"
+              label="Modified"
+              sort={sort}
+              onSort={(column) => setSort((current) => nextSftpSort(current, column))}
+              className="w-28 shrink-0"
+              align="right"
+            />
+            <SortHeader
+              column="permissions"
+              label="Permissions"
+              sort={sort}
+              onSort={(column) => setSort((current) => nextSftpSort(current, column))}
+              className="w-24 shrink-0"
+              align="right"
+            />
           </div>
 
           <ContextMenu>
