@@ -3,6 +3,7 @@ import { detectMonoFontFamily, MONO_FALLBACK_CHAIN } from "@/lib/fonts";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { buildTerminalTheme } from "@/styles/terminalTheme";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { readText as clipboardReadText } from "@tauri-apps/plugin-clipboard-manager";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
@@ -134,6 +135,49 @@ export function pasteIntoLeaf(leafId: number, text: string): boolean {
   const slot = slots.find((s) => s.currentLeafId === leafId);
   if (!slot) return false;
   slot.term.paste(text);
+  return true;
+}
+
+// Uses Tauri's clipboard plugin so the WebView never shows a permission popup.
+export function pasteClipboardToLeaf(leafId: number): void {
+  const slot = slots.find((s) => s.currentLeafId === leafId);
+  if (!slot) return;
+  clipboardReadText()
+    .then((text) => {
+      if (text) slot.term.paste(text);
+    })
+    .catch(() => {});
+}
+
+export function copyFromLeaf(leafId: number): boolean {
+  const slot = slots.find((s) => s.currentLeafId === leafId);
+  if (!slot) return false;
+  const sel = slot.term.getSelection();
+  if (!sel) return false;
+  void navigator.clipboard.writeText(sel).catch(() => {});
+  return true;
+}
+
+export function pasteSelectionToLeaf(leafId: number): boolean {
+  const slot = slots.find((s) => s.currentLeafId === leafId);
+  if (!slot) return false;
+  const sel = slot.term.getSelection();
+  if (!sel) return false;
+  slot.term.paste(sel);
+  return true;
+}
+
+export function selectAllInLeaf(leafId: number): boolean {
+  const slot = slots.find((s) => s.currentLeafId === leafId);
+  if (!slot) return false;
+  slot.term.selectAll();
+  return true;
+}
+
+export function clearLeaf(leafId: number): boolean {
+  const slot = slots.find((s) => s.currentLeafId === leafId);
+  if (!slot) return false;
+  slot.term.clear();
   return true;
 }
 
@@ -487,6 +531,27 @@ function scheduleUnhide(slot: Slot, stale: boolean): void {
   slot.unhideRaf = requestAnimationFrame(() => {
     slot.unhideRaf = requestAnimationFrame(() => {
       slot.unhideRaf = null;
+      // Re-fit before making visible: the fit in bindSlot may have run before
+      // the browser finished layout, leaving the terminal with too few columns
+      // and a wide right margin. By this point layout is complete.
+      try {
+        slot.fitAddon.fit();
+      } catch {}
+      const container = slot.host.parentElement;
+      if (container) {
+        slot.lastW = container.clientWidth;
+        slot.lastH = container.clientHeight;
+      }
+      const newCols = slot.term.cols;
+      const newRows = slot.term.rows;
+      const leafId = slot.currentLeafId;
+      if (newCols !== slot.lastCols || newRows !== slot.lastRows) {
+        slot.lastCols = newCols;
+        slot.lastRows = newRows;
+        if (leafId !== null) {
+          adapter?.resolveLeaf(leafId)?.resizePty(newCols, newRows);
+        }
+      }
       slot.host.style.visibility = "";
       if (stale) {
         if (!slot.webglAddon) attachWebgl(slot);
@@ -494,7 +559,6 @@ function scheduleUnhide(slot: Slot, stale: boolean): void {
           slot.term.refresh(0, slot.term.rows - 1);
         } catch {}
       }
-      const leafId = slot.currentLeafId;
       if (leafId !== null && adapter?.isLeafFocused(leafId)) {
         slot.term.focus();
       }

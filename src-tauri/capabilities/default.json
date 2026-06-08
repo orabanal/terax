@@ -19,6 +19,8 @@
     "core:window:allow-set-title",
     "core:event:allow-listen",
     "core:event:allow-unlisten",
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text",
     "opener:default",
     "log:default",
     "os:default",

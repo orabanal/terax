@@ -25,16 +25,22 @@ import {
   applyTheme as applyPoolTheme,
   applyScrollback,
   applyWebglPreference,
+  clearLeaf,
   configureRendererPool,
+  copyFromLeaf,
   disposeLeafSlot,
   focusSlot,
   getSlotForLeaf,
   isLeafAltScreen,
   parkLeafSlot,
+  pasteClipboardToLeaf,
+  pasteIntoLeaf,
+  pasteSelectionToLeaf,
   poolSize,
   poolSlotStats,
   refreshLeafSlot,
   releaseSlot,
+  selectAllInLeaf,
   setSlotFocused,
 } from "./rendererPool";
 
@@ -113,7 +119,7 @@ export function whenSessionReady(leafId: number, timeoutMs = 4000): Promise<void
   });
 }
 
-export { focusSlot };
+export { focusSlot, copyFromLeaf, pasteIntoLeaf, pasteClipboardToLeaf, pasteSelectionToLeaf, selectAllInLeaf, clearLeaf };
 
 export function writeToSession(leafId: number, data: string): boolean {
   const s = sessions.get(leafId);

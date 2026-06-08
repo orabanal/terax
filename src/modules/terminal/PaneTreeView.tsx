@@ -4,6 +4,7 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuShortcut,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
@@ -18,12 +19,23 @@ import type { SearchAddon } from "@xterm/addon-search";
 import {
   ArrowUpRight01Icon,
   Cancel01Icon,
+  CleanIcon,
+  ClipboardPasteIcon,
+  Copy01Icon,
+  CursorRectangleSelection01Icon,
   LayoutTwoColumnIcon,
   LayoutTwoRowIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { TerminalPane, type TerminalPaneHandle } from "./TerminalPane";
 import { useTerminalDropStore } from "./lib/dropStore";
+import {
+  clearLeaf,
+  copyFromLeaf,
+  pasteClipboardToLeaf,
+  pasteSelectionToLeaf,
+  selectAllInLeaf,
+} from "./lib/useTerminalSession";
 import type { PaneNode } from "./lib/panes";
 
 type LeafBundle = {
@@ -110,9 +122,42 @@ export function PaneTreeView({
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent
-          className="min-w-44"
+          className="min-w-48"
           onCloseAutoFocus={(e) => e.preventDefault()}
         >
+          <ContextMenuItem onSelect={() => copyFromLeaf(node.id)}>
+            <HugeiconsIcon icon={Copy01Icon} size={14} strokeWidth={1.75} />
+            <span className="flex-1">Copiar</span>
+            <ContextMenuShortcut>⌘C</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={() => pasteClipboardToLeaf(node.id)}>
+            <HugeiconsIcon
+              icon={ClipboardPasteIcon}
+              size={14}
+              strokeWidth={1.75}
+            />
+            <span className="flex-1">Pegar</span>
+            <ContextMenuShortcut>⌘V</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={() => pasteSelectionToLeaf(node.id)}>
+            <HugeiconsIcon
+              icon={ClipboardPasteIcon}
+              size={14}
+              strokeWidth={1.75}
+            />
+            <span className="flex-1">Pegar seleccion</span>
+            <ContextMenuShortcut>⌘⇧X</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={() => selectAllInLeaf(node.id)}>
+            <HugeiconsIcon
+              icon={CursorRectangleSelection01Icon}
+              size={14}
+              strokeWidth={1.75}
+            />
+            <span className="flex-1">Seleccionar todo</span>
+            <ContextMenuShortcut>⌘A</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuSeparator />
           <ContextMenuItem onSelect={() => onSplit?.("row")}>
             <HugeiconsIcon
               icon={LayoutTwoColumnIcon}
@@ -120,6 +165,7 @@ export function PaneTreeView({
               strokeWidth={1.75}
             />
             <span className="flex-1">Split horizontal</span>
+            <ContextMenuShortcut>⌘⇧D</ContextMenuShortcut>
           </ContextMenuItem>
           <ContextMenuItem onSelect={() => onSplit?.("col")}>
             <HugeiconsIcon
@@ -128,6 +174,13 @@ export function PaneTreeView({
               strokeWidth={1.75}
             />
             <span className="flex-1">Split vertical</span>
+            <ContextMenuShortcut>⌘D</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onSelect={() => clearLeaf(node.id)}>
+            <HugeiconsIcon icon={CleanIcon} size={14} strokeWidth={1.75} />
+            <span className="flex-1">Limpiar buffer</span>
+            <ContextMenuShortcut>⌘⌃K</ContextMenuShortcut>
           </ContextMenuItem>
           {multiPane && (
             <>

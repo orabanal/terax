@@ -137,10 +137,6 @@ export function SftpView({
   return (
     <SftpDragContext.Provider value={dragContext}>
       <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-border/60 bg-background">
-        <div className="flex h-8 shrink-0 items-center justify-between border-b border-border/60 bg-card px-2">
-          <span className="text-xs font-medium text-foreground/80">SFTP</span>
-        </div>
-
         <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
           <ResizablePanel id="sftp-left" defaultSize="50%" minSize="20%">
             <div data-sftp-side="left" className="flex h-full flex-col">
