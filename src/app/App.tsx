@@ -913,6 +913,7 @@ export default function App() {
                     hasComposer={hasComposer}
                     scopeType={activeAiScope?.type ?? "workspace"}
                     scopeTargetId={activeAiScope?.targetId ?? null}
+                    activeLeafId={activeLeafId}
                   />
                 </div>
               </ResizablePanel>

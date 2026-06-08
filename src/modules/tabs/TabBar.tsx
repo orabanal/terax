@@ -283,7 +283,11 @@ export function TabBar({
             })}
           </TabsList>
         </Tabs>
-        <DropdownMenu>
+        <DropdownMenu
+          onOpenChange={(open) => {
+            if (!open) requestAnimationFrame(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
+          }}
+        >
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
@@ -294,7 +298,7 @@ export function TabBar({
               <HugeiconsIcon icon={PlusSignIcon} size={14} strokeWidth={2} />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="min-w-56 max-h-64">
+          <DropdownMenuContent align="start" className="min-w-56 max-h-[70vh] overflow-y-auto">
             <DropdownMenuItem onSelect={() => onNew()}>
               <HugeiconsIcon
                 icon={ComputerTerminal02Icon}

@@ -33,16 +33,16 @@ export const AiModelPicker = memo(function AiModelPicker({
           type="button"
           variant="ghost"
           size="xs"
-          className="h-5 gap-1 rounded-md px-1.5 text-[10.5px] text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="inline-flex h-6 items-center gap-1 rounded-full px-1.5 text-[10.5px] text-foreground/72 hover:bg-muted/24 transition-colors"
           title={`Model: ${current.label}`}
         >
-          <HugeiconsIcon icon={CpuIcon} size={10} strokeWidth={1.75} />
-          <span className="max-w-[6rem] truncate">{current.label}</span>
+          <HugeiconsIcon icon={CpuIcon} size={11} strokeWidth={1.75} className="text-muted-foreground/64" />
+          <span className="max-w-[82px] truncate">{current.label}</span>
           <HugeiconsIcon
             icon={ArrowDown01Icon}
             size={9}
             strokeWidth={2}
-            className="opacity-60"
+            className="text-muted-foreground/50"
           />
         </Button>
       </DropdownMenuTrigger>

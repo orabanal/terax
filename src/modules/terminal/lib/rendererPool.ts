@@ -980,6 +980,18 @@ export function getSlotForLeaf(leafId: number): Slot | null {
   return slots.find((s) => s.currentLeafId === leafId) ?? null;
 }
 
+export function captureTerminalScreen(leafId: number): string | null {
+  const slot = getSlotForLeaf(leafId);
+  if (!slot) return null;
+  const canvas = slot.term.element?.querySelector("canvas");
+  if (!canvas) return null;
+  try {
+    return canvas.toDataURL("image/png");
+  } catch {
+    return null;
+  }
+}
+
 export function isLeafAltScreen(leafId: number): boolean {
   const slot = slots.find((s) => s.currentLeafId === leafId);
   return slot ? isAltScreen(slot) : false;
