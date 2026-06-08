@@ -158,6 +158,7 @@ pub fn run() {
         .manage(pty::PtyState::default())
         .manage(ssh::SshState::default())
         .manage(sftp::SftpState::default())
+        .manage(fs::copy::CopyState::default())
         .manage(shell::ShellState::default())
         .manage(secrets::SecretsState::default())
         .manage(fs::watch::FsWatchState::default())
@@ -190,6 +191,9 @@ pub fn run() {
             fs::mutate::fs_rename,
             fs::mutate::fs_delete,
             fs::mutate::fs_chmod,
+            fs::copy::fs_copy,
+            fs::copy::fs_copy_recursive,
+            fs::copy::fs_copy_cancel,
             fs::watch::fs_watch_add,
             fs::watch::fs_watch_remove,
             fs::search::fs_search,
@@ -251,6 +255,11 @@ pub fn run() {
             sftp::sftp_read_file,
             sftp::sftp_write_file,
             sftp::sftp_download_file,
+            sftp::sftp_upload,
+            sftp::sftp_download,
+            sftp::sftp_upload_recursive,
+            sftp::sftp_download_recursive,
+            sftp::sftp_cancel,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

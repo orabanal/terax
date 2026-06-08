@@ -23,9 +23,11 @@ export type SftpTransferDirection = "upload" | "download";
 export type SftpTransferStatus =
   | "pending"
   | "transferring"
+  | "conflict"
   | "completed"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "skipped";
 
 export type SftpTransfer = {
   id: string;
@@ -36,6 +38,37 @@ export type SftpTransfer = {
   transferredBytes: number;
   /** Bytes per second. */
   speed: number;
+  /** Present when status needs a message in the queue row. */
+  errorMessage?: string;
+};
+
+/** Which pane a drag started in. The two top-level panes of the dual view. */
+export type SftpPaneSide = "left" | "right";
+
+/** Identifies one mounted pane (a sub-tab connection within a side). */
+export type SftpPaneRef = {
+  side: SftpPaneSide;
+  /** Connection key — distinguishes sub-tabs and local vs remote. */
+  connKey: string;
+  /** "local" reads/writes the filesystem; "remote" uses an SFTP session. */
+  mode: "local" | "remote";
+  /** Current directory shown in the pane. */
+  path: string;
+  /** SFTP session id when mode === "remote". */
+  sessionId: number | null;
+};
+
+/** What the user picked up: the source pane plus the dragged entries. */
+export type SftpDragPayload = {
+  source: SftpPaneRef;
+  entries: SftpEntry[];
+};
+
+/** Where a drop landed. `intoDir` is the resolved destination directory. */
+export type SftpDropTarget = {
+  pane: SftpPaneRef;
+  /** Destination directory: the pane's path, or a folder row under the cursor. */
+  intoDir: string;
 };
 
 /** A pane's connection target. Local is always present; remote is chosen from a host. */

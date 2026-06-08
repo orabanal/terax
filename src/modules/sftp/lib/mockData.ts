@@ -1,4 +1,4 @@
-import type { SftpEntry, SftpTransfer } from "./types";
+import type { SftpEntry } from "./types";
 
 /** Static fixtures for Milestone 1 — visual shell only, no backend. */
 
@@ -30,45 +30,6 @@ export const MOCK_REMOTE_ENTRIES: SftpEntry[] = [
   { name: "nginx.conf", kind: "file", size: 3_872, mtime: BASE_MTIME - 10 * DAY, mode: 0o644 },
   { name: "app.service", kind: "file", size: 742, mtime: BASE_MTIME - 12 * DAY, mode: 0o644 },
   { name: "backup.tar.gz", kind: "file", size: 48_234_496, mtime: BASE_MTIME - 1 * DAY, mode: 0o640 },
-];
-
-export const MOCK_TRANSFERS: SftpTransfer[] = [
-  {
-    id: "t1",
-    fileName: "backup.tar.gz",
-    direction: "download",
-    status: "transferring",
-    totalBytes: 48_234_496,
-    transferredBytes: 21_700_000,
-    speed: 5_242_880,
-  },
-  {
-    id: "t2",
-    fileName: "dist",
-    direction: "upload",
-    status: "transferring",
-    totalBytes: 12_582_912,
-    transferredBytes: 9_437_184,
-    speed: 3_145_728,
-  },
-  {
-    id: "t3",
-    fileName: "package.json",
-    direction: "upload",
-    status: "completed",
-    totalBytes: 2_148,
-    transferredBytes: 2_148,
-    speed: 0,
-  },
-  {
-    id: "t4",
-    fileName: "old-release.tar.gz",
-    direction: "download",
-    status: "failed",
-    totalBytes: 9_000_000,
-    transferredBytes: 1_200_000,
-    speed: 0,
-  },
 ];
 
 export const MOCK_HOSTS = [

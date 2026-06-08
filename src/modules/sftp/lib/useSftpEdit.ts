@@ -21,12 +21,17 @@ function tmpPath(sessionId: number, remotePath: string): string {
 export function useSftpEdit(
   onOpenFile: (path: string) => void,
   onRefresh?: () => void,
+  enqueueUpload?: (args: {
+    sessionId: number;
+    localPath: string;
+    remotePath: string;
+    onComplete?: () => void;
+  }) => void,
 ) {
   const remoteMapRef = useRef<
     Map<string, { sessionId: number; remotePath: string }>
   >(new Map());
 
-  // When the editor saves a temp file, upload to remote and refresh.
   useEffect(() => {
     const unlisten = listen<{ path: string; source?: string }>(
       "fs:file-written",
@@ -34,6 +39,15 @@ export function useSftpEdit(
         const localPath = event.payload.path;
         const entry = remoteMapRef.current.get(localPath);
         if (!entry) return;
+
+        if (enqueueUpload) {
+          enqueueUpload({
+            sessionId: entry.sessionId,
+            localPath,
+            remotePath: entry.remotePath,
+          });
+          return;
+        }
 
         void invoke<FsReadResult>("fs_read_file", {
           path: localPath,
@@ -54,9 +68,8 @@ export function useSftpEdit(
     return () => {
       void unlisten.then((fn) => fn());
     };
-  }, [onRefresh]);
+  }, [enqueueUpload, onRefresh]);
 
-  /** Open a remote file for editing in the Terax editor (text files only). */
   const editRemoteFile = useCallback(
     async (sessionId: number, remotePath: string) => {
       const result = await invoke<SftpReadResult>("sftp_read_file", {
@@ -85,7 +98,6 @@ export function useSftpEdit(
     [onOpenFile],
   );
 
-  /** Open a remote file with the OS default application (any file type). */
   const openRemoteFile = useCallback(
     async (sessionId: number, remotePath: string) => {
       const localPath = tmpPath(sessionId, remotePath);
@@ -98,7 +110,6 @@ export function useSftpEdit(
         localPath,
       });
 
-      // Open with OS default app.
       await invoke("fs_open", { path: localPath }).catch(() => {});
     },
     [],

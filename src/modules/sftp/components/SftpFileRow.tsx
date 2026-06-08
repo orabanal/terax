@@ -111,6 +111,8 @@ export const SftpFileRow = memo(function SftpFileRow({
   return (
     <div
       role="row"
+      data-row-name={entry.name}
+      data-row-kind={entry.kind}
       aria-selected={selected}
       onMouseDown={editing ? undefined : onMouseDown}
       onDoubleClick={editing ? undefined : onDoubleClick}

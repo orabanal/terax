@@ -3,6 +3,7 @@ import type { SshHost } from "@/modules/ssh/store";
 import { useLocalDir } from "../lib/useLocalDir";
 import { useRemoteDir } from "../lib/useRemoteDir";
 import { useSftpEdit } from "../lib/useSftpEdit";
+import type { TransferQueue } from "../lib/useTransferQueue";
 import { SftpPane, type SftpPaneMode } from "./SftpPane";
 
 type Props = {
@@ -18,6 +19,9 @@ type Props = {
   onLocal: () => void;
   connectToHost?: SshHost | null;
   onOpenFile?: (path: string) => void;
+  /** Bumped by SftpView after any transfer completes, to refresh this pane. */
+  refreshTick?: number;
+  enqueueRemoteEditUpload: TransferQueue["enqueueRemoteEditUpload"];
 };
 
 export function SftpConnection({
@@ -33,6 +37,8 @@ export function SftpConnection({
   onLocal,
   connectToHost,
   onOpenFile,
+  refreshTick,
+  enqueueRemoteEditUpload,
 }: Props) {
   const local = useLocalDir(home);
   const remote = useRemoteDir();
@@ -40,6 +46,7 @@ export function SftpConnection({
   const { editRemoteFile, openRemoteFile } = useSftpEdit(
     onOpenFile ?? (() => {}),
     data.refresh,
+    enqueueRemoteEditUpload,
   );
   const autoConnectDone = useRef(false);
   const connected = mode === "local" || remote.connected;
@@ -51,6 +58,15 @@ export function SftpConnection({
       void remote.connect(connectToHost);
     }
   }, [connectToHost, mode, remote]);
+
+  // Refresh after a transfer completes elsewhere. Skip the initial mount
+  // (refreshTick starts at 0) so we don't double-load on first render.
+  const lastTick = useRef(refreshTick);
+  useEffect(() => {
+    if (refreshTick === lastTick.current) return;
+    lastTick.current = refreshTick;
+    if (visible) void data.refresh();
+  }, [refreshTick, visible, data]);
 
   if (!visible) return null;
 

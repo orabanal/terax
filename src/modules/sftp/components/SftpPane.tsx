@@ -11,9 +11,10 @@ import { Plug01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DirMutations, SftpEntry, SftpSide } from "../lib/types";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import type { DirMutations, SftpEntry, SftpPaneSide, SftpSide } from "../lib/types";
 import type { SshHost } from "@/modules/ssh/store";
+import { SftpDragContext } from "../lib/SftpDragContext";
 import { useSftpBookmarks } from "../lib/useSftpBookmarks";
 import { SftpDeleteDialog } from "./SftpDeleteDialog";
 import { SftpEmptyState } from "./SftpEmptyState";
@@ -25,6 +26,8 @@ import { SftpToolbar } from "./SftpToolbar";
 const ROW_HEIGHT = 28;
 const OVERSCAN = 8;
 const MARQUEE_THRESHOLD = 4;
+/** Pixels the cursor must travel before a row press becomes a drag. */
+const DRAG_THRESHOLD = 4;
 
 const PARENT_ENTRY: SftpEntry = {
   name: "..",
@@ -139,10 +142,41 @@ export function SftpPane({
   const [remoteLoading, setRemoteLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const { bookmarks, toggle: toggleBookmark, remove: removeBookmark, isBookmarked } =
-    useSftpBookmarks(connKey);
+  const drag = useContext(SftpDragContext);
 
   const effectiveMode: SftpPaneMode = mode ?? (side === "local" ? "local" : "remote");
+
+  // Top-level side ("left" | "right") inferred from the pane's DOM ancestor so
+  // the drag layer can tell the two halves apart. connKey already disambiguates
+  // sub-tabs, so we derive paneSide lazily at drag-start instead of threading a
+  // prop through SftpConnection.
+  const paneRootRef = useRef<HTMLDivElement>(null);
+  const resolvePaneSide = useCallback((): SftpPaneSide => {
+    const el = paneRootRef.current?.closest<HTMLElement>("[data-sftp-side]");
+    return (el?.getAttribute("data-sftp-side") as SftpPaneSide) ?? "left";
+  }, []);
+
+  const makePaneRef = useCallback(
+    () => ({
+      side: resolvePaneSide(),
+      connKey,
+      mode: effectiveMode,
+      path,
+      sessionId: sessionId ?? null,
+    }),
+    [resolvePaneSide, connKey, effectiveMode, path, sessionId],
+  );
+
+  // Keep the drag layer's pane registry in sync so drops can hit-test this
+  // pane and resolve its current path/session at drop time.
+  useEffect(() => {
+    if (!drag) return;
+    drag.registerPane(makePaneRef());
+    return () => drag.unregisterPane(connKey);
+  }, [drag, makePaneRef, connKey]);
+
+  const { bookmarks, toggle: toggleBookmark, remove: removeBookmark, isBookmarked } =
+    useSftpBookmarks(connKey);
 
   useEffect(() => {
     if (!focused) {
@@ -205,33 +239,77 @@ export function SftpPane({
       if (e.button !== 0) return;
 
       const additive = e.metaKey || e.ctrlKey;
+      const shift = e.shiftKey;
 
-      if (e.shiftKey && anchorIndex !== null) {
-        const lo = Math.min(anchorIndex, index);
-        const hi = Math.max(anchorIndex, index);
-        setSelected((prev) => {
-          const next = additive ? new Set(prev) : new Set<string>();
-          for (let i = lo; i <= hi; i++) next.add(sorted[i].name);
-          return next;
-        });
-        return;
-      }
-
-      if (additive) {
-        setSelected((prev) => {
-          const next = new Set(prev);
-          if (next.has(name)) next.delete(name);
-          else next.add(name);
-          return next;
-        });
+      // Applies the click/shift/cmd selection. Deferred until mouseup so a drag
+      // gesture (press + move) doesn't collapse a multi-selection first.
+      const applySelection = () => {
+        if (shift && anchorIndex !== null) {
+          const lo = Math.min(anchorIndex, index);
+          const hi = Math.max(anchorIndex, index);
+          setSelected((prev) => {
+            const next = additive ? new Set(prev) : new Set<string>();
+            for (let i = lo; i <= hi; i++) next.add(sorted[i].name);
+            return next;
+          });
+          return;
+        }
+        if (additive) {
+          setSelected((prev) => {
+            const next = new Set(prev);
+            if (next.has(name)) next.delete(name);
+            else next.add(name);
+            return next;
+          });
+          setAnchorIndex(index);
+          return;
+        }
+        setSelected(new Set([name]));
         setAnchorIndex(index);
-        return;
-      }
+      };
 
-      setSelected(new Set([name]));
-      setAnchorIndex(index);
+      // ".." is never draggable, and a plain re-press on an already-selected
+      // row keeps the multi-selection so it can be dragged as a group.
+      const isParent = name === "..";
+      const onSelectedRow = selected.has(name);
+      const startX = e.clientX;
+      const startY = e.clientY;
+      let dragging = false;
+
+      const onMove = (ev: MouseEvent) => {
+        if (dragging || isParent || !drag) return;
+        if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < DRAG_THRESHOLD) {
+          return;
+        }
+        dragging = true;
+
+        // Drag the current selection if the press landed on a selected row;
+        // otherwise drag just this row (and make it the selection).
+        let names: Set<string>;
+        if (onSelectedRow && !additive && !shift) {
+          names = selected;
+        } else {
+          names = new Set([name]);
+          setSelected(names);
+          setAnchorIndex(index);
+        }
+        const dragged = sorted.filter(
+          (en) => en.name !== ".." && en.name !== "" && names.has(en.name),
+        );
+        if (dragged.length === 0) return;
+        drag.startDrag({ source: makePaneRef(), entries: dragged }, ev.clientX, ev.clientY);
+      };
+
+      const onUp = () => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+        if (!dragging) applySelection();
+      };
+
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
     },
-    [sorted, anchorIndex],
+    [sorted, anchorIndex, selected, drag, makePaneRef],
   );
 
   const onListMouseDown = useCallback(
@@ -402,9 +480,14 @@ export function SftpPane({
 
   return (
     <div
+      ref={paneRootRef}
+      data-sftp-pane
+      data-conn-key={connKey}
       className={cn(
         "flex h-full min-w-0 flex-col bg-background",
         focused && "ring-1 ring-inset ring-ring/40",
+        drag?.drag?.hovered?.pane.connKey === connKey &&
+          "ring-1 ring-inset ring-primary",
       )}
       onMouseDown={onFocus}
     >

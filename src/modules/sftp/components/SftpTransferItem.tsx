@@ -20,9 +20,11 @@ type Props = {
 const STATUS_LABEL: Record<SftpTransfer["status"], string> = {
   pending: "Queued",
   transferring: "",
+  conflict: "Conflict",
   completed: "Done",
   failed: "Failed",
   cancelled: "Cancelled",
+  skipped: "Skipped",
 };
 
 export function SftpTransferItem({ transfer, onCancel, onRetry }: Props) {

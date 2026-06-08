@@ -85,6 +85,8 @@ export type Preferences = {
   showHidden: boolean;
   /** When true, the single pinned SFTP tab is shown in the first tab-bar slot. */
   sftpTabVisible: boolean;
+  /** When true, the SFTP transfer queue auto-closes after a clean batch. */
+  sftpCloseOnComplete: boolean;
   terminalWebglEnabled: boolean;
   terminalCursorBlink: boolean;
   terminalCursorStyle: TerminalCursorStyle;
@@ -135,6 +137,7 @@ const KEY_RECENT_MODELS = "recentModelIds";
 const KEY_VIM_MODE = "vimMode";
 const KEY_SHOW_HIDDEN = "showHidden";
 const KEY_SFTP_TAB_VISIBLE = "sftpTabVisible";
+const KEY_SFTP_CLOSE_ON_COMPLETE = "sftpCloseOnComplete";
 const LEGACY_KEY_SHOW_HIDDEN_DIRS = "showHiddenDirectories";
 const KEY_TERMINAL_WEBGL_ENABLED = "terminalWebglEnabled";
 const KEY_TERMINAL_CURSOR_BLINK = "terminalCursorBlink";
@@ -200,6 +203,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   vimMode: false,
   showHidden: false,
   sftpTabVisible: false,
+  sftpCloseOnComplete: false,
   terminalWebglEnabled: true,
   terminalCursorBlink: false,
   terminalCursorStyle: "bar" as TerminalCursorStyle,
@@ -326,6 +330,9 @@ export async function loadPreferences(): Promise<Preferences> {
     sftpTabVisible:
       get<boolean>(KEY_SFTP_TAB_VISIBLE) ??
       DEFAULT_PREFERENCES.sftpTabVisible,
+    sftpCloseOnComplete:
+      get<boolean>(KEY_SFTP_CLOSE_ON_COMPLETE) ??
+      DEFAULT_PREFERENCES.sftpCloseOnComplete,
     terminalWebglEnabled:
       get<boolean>(KEY_TERMINAL_WEBGL_ENABLED) ??
       DEFAULT_PREFERENCES.terminalWebglEnabled,
@@ -523,6 +530,10 @@ export async function setSftpTabVisible(value: boolean): Promise<void> {
   await writePref(KEY_SFTP_TAB_VISIBLE, value);
 }
 
+export async function setSftpCloseOnComplete(value: boolean): Promise<void> {
+  await writePref(KEY_SFTP_CLOSE_ON_COMPLETE, value);
+}
+
 export async function setTerminalWebglEnabled(value: boolean): Promise<void> {
   await writePref(KEY_TERMINAL_WEBGL_ENABLED, value);
 }
@@ -655,6 +666,7 @@ export async function onPreferencesChange(
     [KEY_VIM_MODE]: "vimMode",
     [KEY_SHOW_HIDDEN]: "showHidden",
     [KEY_SFTP_TAB_VISIBLE]: "sftpTabVisible",
+    [KEY_SFTP_CLOSE_ON_COMPLETE]: "sftpCloseOnComplete",
     [KEY_TERMINAL_WEBGL_ENABLED]: "terminalWebglEnabled",
     [KEY_TERMINAL_CURSOR_BLINK]: "terminalCursorBlink",
     [KEY_TERMINAL_CURSOR_STYLE]: "terminalCursorStyle",

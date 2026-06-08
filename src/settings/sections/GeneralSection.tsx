@@ -27,6 +27,7 @@ import {
   setRestoreWindowState,
   setShowHidden,
   setSftpTabVisible,
+  setSftpCloseOnComplete,
   setTerminalFontFamily,
   setTerminalLetterSpacing,
   setTerminalFontSize,
@@ -77,6 +78,7 @@ export function GeneralSection() {
   const editorAutoSaveDelay = usePreferencesStore((s) => s.editorAutoSaveDelay);
   const showHidden = usePreferencesStore((s) => s.showHidden);
   const sftpTabVisible = usePreferencesStore((s) => s.sftpTabVisible);
+  const sftpCloseOnComplete = usePreferencesStore((s) => s.sftpCloseOnComplete);
   const terminalWebglEnabled = usePreferencesStore(
     (s) => s.terminalWebglEnabled,
   );
@@ -224,6 +226,15 @@ export function GeneralSection() {
           <Switch
             checked={sftpTabVisible}
             onCheckedChange={(v) => void setSftpTabVisible(v)}
+          />
+        </SettingRow>
+        <SettingRow
+          title="Cerrar al completar transferencia"
+          description="Oculta la ventana de transferencias automáticamente cuando todas terminan sin errores. Si está desactivado, la ventana permanece abierta."
+        >
+          <Switch
+            checked={sftpCloseOnComplete}
+            onCheckedChange={(v) => void setSftpCloseOnComplete(v)}
           />
         </SettingRow>
       </div>
