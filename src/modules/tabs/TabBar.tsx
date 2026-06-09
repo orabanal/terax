@@ -80,16 +80,12 @@ export function TabBar({
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
-  // The pinned SFTP tab always occupies the first slot, regardless of when it
-  // was created relative to other tabs.
-  const orderedTabs =
-    tabs.length > 1 && tabs.some((t) => t.kind === "sftp")
-      ? [...tabs].sort((a, b) => {
-          const as = a.kind === "sftp" ? 0 : 1;
-          const bs = b.kind === "sftp" ? 0 : 1;
-          return as - bs;
-        })
-      : tabs;
+  // The SFTP tab is rendered as a fixed element outside the scrollable area so
+  // it stays visible at all times.  The remaining tabs scroll independently.
+  const sftpTab = tabs.find((t) => t.kind === "sftp") ?? null;
+  const scrollableTabs = sftpTab
+    ? tabs.filter((t) => t.kind !== "sftp")
+    : tabs;
   const sshHosts = useSshHostsStore((s) => s.hosts);
   const sshHydrated = useSshHostsStore((s) => s.hydrated);
   const sshInit = useSshHostsStore((s) => s.init);
@@ -137,17 +133,36 @@ export function TabBar({
 
   return (
     <div
-      ref={scrollRef}
       data-tauri-drag-region
-      className="min-w-0 shrink overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="flex min-w-0 shrink items-center"
     >
-      <div className="flex w-max items-center gap-0.5">
-        <Tabs
-          value={String(activeId)}
-          onValueChange={(v) => onSelect(Number(v))}
+      {sftpTab && (
+        <button
+          data-tab-id={sftpTab.id}
+          onClick={() => onSelect(sftpTab.id)}
+          className={cn(
+            "group flex h-7 shrink-0 items-center gap-1.5 rounded-md text-xs transition-colors hover:text-foreground/80",
+            sftpTab.id === activeId
+              ? "bg-accent text-foreground"
+              : "text-muted-foreground",
+            compact ? "px-1.5" : "px-2",
+          )}
         >
-          <TabsList className="h-7 w-max gap-0.5 bg-transparent p-0">
-            {orderedTabs.map((t) => {
+          <TabIcon tab={sftpTab} />
+          <span className="truncate">{labelFor(sftpTab)}</span>
+        </button>
+      )}
+      <div
+        ref={scrollRef}
+        className="min-w-0 shrink overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        <div className="flex w-max items-center gap-0.5">
+          <Tabs
+            value={String(activeId)}
+            onValueChange={(v) => onSelect(Number(v))}
+          >
+            <TabsList className="h-7 w-max gap-0.5 bg-transparent p-0">
+              {scrollableTabs.map((t) => {
               const isPreview = t.kind === "editor" && (t as EditorTab).preview;
               const isActive = t.id === activeId;
               // The SFTP tab is pinned and managed by the "Show SFTP" toggle,
@@ -180,6 +195,11 @@ export function TabBar({
                 );
               }
 
+              // Terminal and editor tabs use a fixed width so they don't resize
+              // when the working directory or file name changes.
+              const fixedWidth =
+                t.kind === "terminal" || t.kind === "editor" || t.kind === "markdown";
+
               const trigger = (
                 <TabsTrigger
                   key={t.id}
@@ -201,9 +221,10 @@ export function TabBar({
                     isActive
                       ? "bg-accent text-foreground"
                       : "text-muted-foreground",
+                    fixedWidth && (compact ? "w-32" : "w-40"),
                     compact
                       ? "px-1.5!"
-                      : tabs.length === 1
+                      : tabs.length === 1 && !fixedWidth
                         ? "px-2!"
                         : "ps-2! pe-1!",
                   )}
@@ -380,6 +401,7 @@ export function TabBar({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+    </div>
     </div>
   );
 }
