@@ -5,6 +5,7 @@ export {
   disposeSession,
   leafHasForegroundProcess,
   leafIdForPty,
+  ptyIdForLeaf,
   respawnSession,
   whenSessionReady,
   writeToSession,

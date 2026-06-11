@@ -76,6 +76,39 @@ export function buildShellTools(ctx: ToolContext) {
       },
     }),
 
+    ssh_run: tool({
+      description:
+        "Run a command on the REMOTE SSH server via a separate exec channel. The command runs silently on the server — it is NOT visible in the user's terminal. Use this instead of bash_run when the session is connected via SSH. Returns stdout, stderr, and exit code. Asks for user approval.",
+      inputSchema: z.object({
+        command: z.string(),
+      }),
+      needsApproval: true,
+      execute: async ({ command }) => {
+        const safety = checkShellCommand(command);
+        if (!safety.ok) return { error: safety.reason };
+        const blocklist = checkCommandBlocklist(command, ctx.getCommandBlocklist());
+        if (!blocklist.ok) return { error: blocklist.reason };
+        if (ctx.getPermissionMode() === "observer") {
+          return { error: "Commands are blocked in observer mode. Switch to confirm or autonomous mode." };
+        }
+        const sshId = ctx.getSshSessionId();
+        if (sshId == null) {
+          return { error: "No SSH session available. Use bash_run for local terminals." };
+        }
+        try {
+          const r = await native.sshExec(sshId, command);
+          return {
+            command,
+            stdout: r.stdout,
+            stderr: r.stderr,
+            exit_code: r.exitCode,
+          };
+        } catch (e) {
+          return { error: String(e) };
+        }
+      },
+    }),
+
     bash_background: tool({
       description:
         "Spawn a long-running background process (e.g. `pnpm dev`, `cargo watch`, log tailers). Returns a handle; use `bash_logs` to read its output and `bash_kill` to stop it. Output is captured into a 4MB ring buffer. Asks for user approval.",

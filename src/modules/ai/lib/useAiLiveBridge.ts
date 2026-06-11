@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useManagedAgentsStore } from "@/modules/agents/store/managedAgentsStore";
 import {
   findLeafCwd,
+  ptyIdForLeaf,
   type TerminalPaneHandle,
   whenSessionReady,
   writeToSession,
@@ -76,8 +77,22 @@ export function useAiLiveBridge(params: Params) {
       return explorerRoot ?? launchCwd ?? home ?? null;
     };
 
+    const findTerminalTabForLeaf = (leafId: number): Tab | undefined => {
+      const { tabs } = ref.current;
+      return tabs.find(
+        (t) => t.kind === "terminal" && t.activeLeafId === leafId,
+      );
+    };
+
+    const findCwdForLeaf = (leafId: number): string | null => {
+      const tab = findTerminalTabForLeaf(leafId);
+      if (tab?.kind !== "terminal") return null;
+      return findLeafCwd(tab.paneTree, leafId) ?? tab.cwd ?? null;
+    };
+
     setLive({
       getCwd: findCwd,
+      getCwdForLeaf: findCwdForLeaf,
       getTerminalContext: () => {
         const { activeId, tabs } = ref.current;
         const t = tabs.find((x) => x.id === activeId);
@@ -86,10 +101,20 @@ export function useAiLiveBridge(params: Params) {
         const buf = terminalRefs.current.get(t.activeLeafId)?.getBuffer(300);
         return buf ? redactSensitive(buf) : null;
       },
+      getTerminalContextForLeaf: (leafId) => {
+        const tab = findTerminalTabForLeaf(leafId);
+        if (tab?.kind !== "terminal" || tab.private) return null;
+        const buf = terminalRefs.current.get(leafId)?.getBuffer(300);
+        return buf ? redactSensitive(buf) : null;
+      },
       isActiveTerminalPrivate: () => {
         const { activeId, tabs } = ref.current;
         const t = tabs.find((x) => x.id === activeId);
         return t?.kind === "terminal" && t.private === true;
+      },
+      isTerminalPrivateForLeaf: (leafId) => {
+        const tab = findTerminalTabForLeaf(leafId);
+        return tab?.kind === "terminal" && tab.private === true;
       },
       injectIntoActivePty: (text) => {
         const { activeId, tabs } = ref.current;
@@ -100,6 +125,22 @@ export function useAiLiveBridge(params: Params) {
         term.write(text);
         term.focus();
         return true;
+      },
+      injectIntoPtyForLeaf: (leafId, text) => {
+        const term = terminalRefs.current.get(leafId);
+        if (!term) return false;
+        term.write(text);
+        term.focus();
+        return true;
+      },
+      isTerminalSshForLeaf: (leafId) => {
+        const tab = findTerminalTabForLeaf(leafId);
+        return tab?.kind === "terminal" && tab.sshHostId != null;
+      },
+      getSshSessionIdForLeaf: (leafId) => {
+        const tab = findTerminalTabForLeaf(leafId);
+        if (tab?.kind !== "terminal" || !tab.sshHostId) return null;
+        return ptyIdForLeaf(leafId);
       },
       getWorkspaceRoot: () => {
         const { explorerRoot, launchCwd, home } = ref.current;

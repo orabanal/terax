@@ -28,14 +28,47 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     return scopeKey(session.scope);
   };
 
+  /** Extract leafId from scope key like "terminal:42". Returns null for non-terminal scopes. */
+  const getScopeLeafId = (): number | null => {
+    const sk = getSessionScopeKey();
+    if (!sk?.startsWith("terminal:")) return null;
+    const id = Number(sk.slice("terminal:".length));
+    return Number.isFinite(id) ? id : null;
+  };
+
   const toolContext: ToolContext = {
-    getCwd: () => useChatStore.getState().live.getCwd(),
+    getCwd: () => {
+      const leafId = getScopeLeafId();
+      const live = useChatStore.getState().live;
+      return leafId != null ? live.getCwdForLeaf(leafId) : live.getCwd();
+    },
     getWorkspaceRoot: () => useChatStore.getState().live.getWorkspaceRoot(),
-    getTerminalContext: () => useChatStore.getState().live.getTerminalContext(),
-    isActiveTerminalPrivate: () =>
-      useChatStore.getState().live.isActiveTerminalPrivate(),
-    injectIntoActivePty: (text) =>
-      useChatStore.getState().live.injectIntoActivePty(text),
+    getTerminalContext: () => {
+      const leafId = getScopeLeafId();
+      const live = useChatStore.getState().live;
+      return leafId != null
+        ? live.getTerminalContextForLeaf(leafId)
+        : live.getTerminalContext();
+    },
+    isActiveTerminalPrivate: () => {
+      const leafId = getScopeLeafId();
+      const live = useChatStore.getState().live;
+      return leafId != null
+        ? live.isTerminalPrivateForLeaf(leafId)
+        : live.isActiveTerminalPrivate();
+    },
+    injectIntoActivePty: (text) => {
+      const leafId = getScopeLeafId();
+      const live = useChatStore.getState().live;
+      return leafId != null
+        ? live.injectIntoPtyForLeaf(leafId, text)
+        : live.injectIntoActivePty(text);
+    },
+    getSshSessionId: () => {
+      const leafId = getScopeLeafId();
+      if (leafId == null) return null;
+      return useChatStore.getState().live.getSshSessionIdForLeaf(leafId);
+    },
     openPreview: (url) => useChatStore.getState().live.openPreview(url),
     spawnAgent: (prompt) =>
       useChatStore.getState().live.spawnManagedAgent(prompt, sessionId),
@@ -83,14 +116,23 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     },
     getLive: () => {
       const live = useChatStore.getState().live;
+      const leafId = getScopeLeafId();
       return {
         cwd: live.getCwd(),
         terminalPrivate: live.isActiveTerminalPrivate(),
         workspaceRoot: live.getWorkspaceRoot(),
         activeFile: live.getActiveFile(),
+        scopeTerminalCwd: leafId != null ? live.getCwdForLeaf(leafId) : undefined,
+        scopeTerminalPrivate: leafId != null ? live.isTerminalPrivateForLeaf(leafId) : undefined,
+        scopeTerminalSsh: leafId != null ? live.isTerminalSshForLeaf(leafId) : undefined,
       };
     },
     getPlanMode: () => usePlanStore.getState().active,
+    getReasoningEffort: () => {
+      const sk = getSessionScopeKey();
+      const state = useChatStore.getState();
+      return sk ? state.getReasoningEffortForScope(sk) : state.reasoningEffort;
+    },
     getLmstudioBaseURL: () => usePreferencesStore.getState().lmstudioBaseURL,
     getLmstudioModelId: () => usePreferencesStore.getState().lmstudioModelId,
     getMlxBaseURL: () => usePreferencesStore.getState().mlxBaseURL,

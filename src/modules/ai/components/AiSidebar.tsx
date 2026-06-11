@@ -45,14 +45,14 @@ import {
   tryRunSlashCommand,
 } from "../lib/slashCommands";
 import { useSkillsStore } from "../store/skillsStore";
-import { useChatStore, type PermissionMode } from "../store/chatStore";
+import { useChatStore, type PermissionMode, type ReasoningEffort } from "../store/chatStore";
 import { getOrCreateChat, sendMessage } from "../store/chatRuntime";
 import { AgentSwitcher } from "./AgentSwitcher";
 import { AiChatView } from "./AiChat";
 import { AiModelPicker } from "./AiModelPicker";
 
 const MIN_WIDTH = 360;
-const DEFAULT_WIDTH = 400;
+const DEFAULT_WIDTH = 460;
 
 type Attachment = {
   id: string;
@@ -168,6 +168,8 @@ function AiSidebarInner({
   const setSelectedModelId = useChatStore((s) => s.setSelectedModelForScope);
   const permissionMode = useChatStore((s) => s.getPermissionModeForScope(sk));
   const setPermissionMode = useChatStore((s) => s.setPermissionModeForScope);
+  const reasoningEffort = useChatStore((s) => s.getReasoningEffortForScope(sk));
+  const setReasoningEffort = useChatStore((s) => s.setReasoningEffortForScope);
 
   const [showHistory, setShowHistory] = useState(false);
   const [input, setInput] = useState("");
@@ -229,6 +231,8 @@ function AiSidebarInner({
       onToggle={onToggle}
       permissionMode={permissionMode}
       setPermissionMode={(mode) => setPermissionMode(sk, mode)}
+      reasoningEffort={reasoningEffort}
+      setReasoningEffort={(effort) => setReasoningEffort(sk, effort)}
       selectedModelId={selectedModelId}
       setSelectedModelId={(id) => setSelectedModelId(sk, id)}
       deleteSession={deleteSession}
@@ -251,6 +255,8 @@ type SessionProps = {
   onToggle: () => void;
   permissionMode: PermissionMode;
   setPermissionMode: (mode: PermissionMode) => void;
+  reasoningEffort: ReasoningEffort;
+  setReasoningEffort: (effort: ReasoningEffort) => void;
   selectedModelId: string;
   setSelectedModelId: (id: string) => void;
   deleteSession: (id: string) => void;
@@ -271,6 +277,8 @@ function AiSidebarSession({
   onToggle,
   permissionMode,
   setPermissionMode,
+  reasoningEffort,
+  setReasoningEffort,
   selectedModelId,
   setSelectedModelId,
   deleteSession,
@@ -552,6 +560,10 @@ function AiSidebarSession({
                   mode={permissionMode}
                   onCycle={cyclePermissionMode(permissionMode, setPermissionMode)}
                 />
+                <ReasoningChip
+                  effort={reasoningEffort}
+                  onCycle={cycleReasoningEffort(reasoningEffort, setReasoningEffort)}
+                />
                 <div className="flex-1" />
                 {isBusy ? (
                   <Button
@@ -758,6 +770,73 @@ const PERMISSION_META: Record<
     description: "Execute all tools without approval.",
   },
 };
+
+const REASONING_EFFORTS: ReasoningEffort[] = ["auto", "none", "low", "medium", "high"];
+
+function cycleReasoningEffort(
+  current: ReasoningEffort,
+  set: (effort: ReasoningEffort) => void,
+): () => void {
+  return () => {
+    const idx = REASONING_EFFORTS.indexOf(current);
+    set(REASONING_EFFORTS[(idx + 1) % REASONING_EFFORTS.length]);
+  };
+}
+
+const REASONING_META: Record<
+  ReasoningEffort,
+  { label: string; className: string; description: string }
+> = {
+  auto: {
+    label: "Auto",
+    className: "text-muted-foreground/60",
+    description: "Let the model decide reasoning level.",
+  },
+  none: {
+    label: "None",
+    className: "text-red-400/70",
+    description: "Disable reasoning/thinking.",
+  },
+  low: {
+    label: "Low",
+    className: "text-yellow-400/70",
+    description: "Minimal reasoning budget.",
+  },
+  medium: {
+    label: "Medium",
+    className: "text-amber-400/70",
+    description: "Moderate reasoning budget.",
+  },
+  high: {
+    label: "High",
+    className: "text-green-400/70",
+    description: "Maximum reasoning budget.",
+  },
+};
+
+const ReasoningChip = memo(function ReasoningChip({
+  effort,
+  onCycle,
+}: {
+  effort: ReasoningEffort;
+  onCycle: () => void;
+}) {
+  const meta = REASONING_META[effort];
+  return (
+    <button
+      type="button"
+      onClick={onCycle}
+      className={cn(
+        "inline-flex h-6 items-center gap-1 rounded-full px-1.5 text-[10.5px] transition-colors cursor-pointer hover:bg-muted/24",
+        meta.className,
+      )}
+      title={meta.description}
+    >
+      <HugeiconsIcon icon={ZapIcon} size={11} strokeWidth={1.75} />
+      <span className="max-w-[72px] truncate">{meta.label}</span>
+    </button>
+  );
+});
 
 const SessionHistory = memo(function SessionHistory({
   sessions,

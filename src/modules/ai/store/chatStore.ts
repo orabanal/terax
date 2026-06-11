@@ -34,11 +34,25 @@ import type { PermissionMode } from "../tools/context";
 
 export type { PermissionMode };
 
+export type ReasoningEffort = "auto" | "none" | "low" | "medium" | "high";
+
 export type Live = {
   getCwd: () => string | null;
   getTerminalContext: () => string | null;
   isActiveTerminalPrivate: () => boolean;
   injectIntoActivePty: (text: string) => boolean;
+  /** Scope-aware: read from a specific terminal leaf instead of the active tab. */
+  getCwdForLeaf: (leafId: number) => string | null;
+  /** Scope-aware: read terminal buffer from a specific leaf. */
+  getTerminalContextForLeaf: (leafId: number) => string | null;
+  /** Scope-aware: check if a specific terminal leaf is private. */
+  isTerminalPrivateForLeaf: (leafId: number) => boolean;
+  /** Scope-aware: write to a specific terminal leaf. */
+  injectIntoPtyForLeaf: (leafId: number, text: string) => boolean;
+  /** Scope-aware: check if a specific terminal leaf is an SSH session. */
+  isTerminalSshForLeaf: (leafId: number) => boolean;
+  /** Get the PTY/SSH session id for a specific terminal leaf. */
+  getSshSessionIdForLeaf: (leafId: number) => number | null;
   getWorkspaceRoot: () => string | null;
   getActiveFile: () => string | null;
   openPreview: (url: string) => boolean;
@@ -128,6 +142,12 @@ type StoreState = {
   getPermissionModeForScope: (scopeKey: string) => PermissionMode;
   setPermissionModeForScope: (scopeKey: string, mode: PermissionMode) => void;
 
+  reasoningEffort: ReasoningEffort;
+  setReasoningEffort: (effort: ReasoningEffort) => void;
+  reasoningEffortByScope: Record<string, ReasoningEffort>;
+  getReasoningEffortForScope: (scopeKey: string) => ReasoningEffort;
+  setReasoningEffortForScope: (scopeKey: string, effort: ReasoningEffort) => void;
+
   commandBlocklist: string[];
   setCommandBlocklist: (patterns: string[]) => void;
 
@@ -183,6 +203,12 @@ const NOOP_LIVE: Live = {
   getTerminalContext: () => null,
   isActiveTerminalPrivate: () => false,
   injectIntoActivePty: () => false,
+  getCwdForLeaf: () => null,
+  getTerminalContextForLeaf: () => null,
+  isTerminalPrivateForLeaf: () => false,
+  injectIntoPtyForLeaf: () => false,
+  isTerminalSshForLeaf: () => false,
+  getSshSessionIdForLeaf: () => null,
   getWorkspaceRoot: () => null,
   getActiveFile: () => null,
   openPreview: () => false,
@@ -300,6 +326,14 @@ export const useChatStore = create<StoreState>((set, get) => ({
     get().permissionModeByScope[key] ?? get().permissionMode,
   setPermissionModeForScope: (key, mode) =>
     set((s) => ({ permissionModeByScope: { ...s.permissionModeByScope, [key]: mode } })),
+
+  reasoningEffort: "auto",
+  setReasoningEffort: (effort) => set({ reasoningEffort: effort }),
+  reasoningEffortByScope: {},
+  getReasoningEffortForScope: (key) =>
+    get().reasoningEffortByScope[key] ?? get().reasoningEffort,
+  setReasoningEffortForScope: (key, effort) =>
+    set((s) => ({ reasoningEffortByScope: { ...s.reasoningEffortByScope, [key]: effort } })),
 
   commandBlocklist: [],
   setCommandBlocklist: (patterns) => set({ commandBlocklist: patterns }),

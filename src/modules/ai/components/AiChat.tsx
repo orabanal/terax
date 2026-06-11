@@ -3,6 +3,7 @@ import {
   ConversationContent,
   ConversationEmptyState,
   ConversationScrollButton,
+  ScrollAnchor,
 } from "@/components/ai-elements/conversation";
 import {
   Message,
@@ -280,6 +281,7 @@ export function AiChatView({
           </div>
         )}
       </ConversationContent>
+      <ScrollAnchor messageCount={messages.length} status={status} />
       <ConversationScrollButton />
     </Conversation>
   );

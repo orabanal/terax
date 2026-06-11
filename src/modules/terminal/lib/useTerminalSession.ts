@@ -151,6 +151,11 @@ export function leafIdForPty(ptyId: number): number | null {
   return null;
 }
 
+/** Get the PTY/SSH session id for a terminal leaf. Returns null if not found or not SSH. */
+export function ptyIdForLeaf(leafId: number): number | null {
+  return sessions.get(leafId)?.pty?.id ?? null;
+}
+
 configureRendererPool({
   resolveLeaf(leafId) {
     const s = sessions.get(leafId);

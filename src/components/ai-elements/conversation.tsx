@@ -6,7 +6,7 @@ import type { UIMessage } from "ai";
 import { ArrowDown01Icon, Download01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ComponentProps } from "react";
-import { useCallback } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 
 export type ConversationProps = ComponentProps<typeof StickToBottom>;
@@ -34,6 +34,65 @@ export const ConversationContent = ({
     {...props}
   />
 );
+
+export interface ScrollAnchorProps {
+  /** Number of messages — scroll fires when this increases. */
+  messageCount: number;
+  /** Chat status — scroll fires on transition to "submitted" or "streaming". */
+  status?: string;
+}
+
+/**
+ * Keeps the conversation pinned to the bottom when new messages arrive
+ * or when the agent starts streaming. Uses `useLayoutEffect` so the
+ * scroll happens synchronously before the browser paints.
+ *
+ * During streaming, a `requestAnimationFrame` loop keeps the scroll
+ * position locked as long as the user hasn't manually scrolled away.
+ * The loop stops as soon as the user scrolls up or streaming ends.
+ */
+export function ScrollAnchor({ messageCount, status }: ScrollAnchorProps) {
+  const { scrollToBottom, isAtBottom } = useStickToBottomContext();
+  const prevCountRef = useRef(messageCount);
+  const wasStreamingRef = useRef(status === "streaming");
+
+  // Scroll when a new message appears (user sent or agent replied).
+  useLayoutEffect(() => {
+    if (messageCount !== prevCountRef.current) {
+      prevCountRef.current = messageCount;
+      scrollToBottom();
+    }
+  }, [messageCount, scrollToBottom]);
+
+  // Scroll when streaming starts.
+  useLayoutEffect(() => {
+    const streaming = status === "streaming";
+    if (streaming && !wasStreamingRef.current) {
+      wasStreamingRef.current = true;
+      scrollToBottom();
+    }
+    if (!streaming) {
+      wasStreamingRef.current = false;
+    }
+  }, [status, scrollToBottom]);
+
+  // Keep scrolling during streaming if user is still at the bottom.
+  useEffect(() => {
+    if (status !== "streaming" || !isAtBottom) return;
+    let active = true;
+    const tick = () => {
+      if (!active) return;
+      scrollToBottom();
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    return () => {
+      active = false;
+    };
+  }, [status, isAtBottom, scrollToBottom]);
+
+  return null;
+}
 
 export type ConversationEmptyStateProps = ComponentProps<"div"> & {
   title?: string;

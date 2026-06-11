@@ -1,5 +1,6 @@
 import type { UIMessage } from "@ai-sdk/react";
 import type { CustomEndpoint } from "../config";
+import type { ReasoningEffort } from "../store/chatStore";
 import { runAgentStream, type AgentUsageDelta } from "./agent";
 import type { ProviderKeys, CustomEndpointKeys } from "./keyring";
 import { native } from "./native";
@@ -37,6 +38,12 @@ type LiveSnapshot = {
   terminalPrivate: boolean;
   workspaceRoot: string | null;
   activeFile: string | null;
+  /** Cwd from the session-scoped terminal (when scope is terminal:leafId). */
+  scopeTerminalCwd?: string | null;
+  /** Whether the session-scoped terminal is private. */
+  scopeTerminalPrivate?: boolean;
+  /** Whether the session-scoped terminal is an SSH connection. */
+  scopeTerminalSsh?: boolean;
 };
 
 type Deps = {
@@ -63,6 +70,7 @@ type Deps = {
   onCompact?: (info: { droppedCount: number }) => void;
   onFinishMeta?: (info: { hitStepCap: boolean; finishReason: string }) => void;
   getPlanMode?: () => boolean;
+  getReasoningEffort?: () => ReasoningEffort;
 };
 
 type SendOptions = {
@@ -102,6 +110,7 @@ export function createContextAwareTransport(deps: Deps) {
       customEndpoints: deps.getCustomEndpoints?.(),
       customEndpointKeys: deps.getCustomEndpointKeys?.(),
       planMode: deps.getPlanMode?.(),
+      reasoningEffort: deps.getReasoningEffort?.() ?? "auto",
       projectMemory,
       uiMessages: messagesForRun,
       abortSignal: options.abortSignal,
@@ -155,6 +164,12 @@ function formatEnvBlock(live: LiveSnapshot): string | null {
   if (live.cwd) lines.push(`active_terminal_cwd: ${live.cwd}`);
   if (live.activeFile) lines.push(`active_file: ${live.activeFile}`);
   if (live.terminalPrivate) lines.push("active_terminal_mode: private");
+  if (live.scopeTerminalCwd)
+    lines.push(`session_terminal_cwd: ${live.scopeTerminalCwd}`);
+  if (live.scopeTerminalPrivate)
+    lines.push("session_terminal_mode: private");
+  if (live.scopeTerminalSsh)
+    lines.push("session_terminal_connection: ssh");
   if (lines.length === 0) return null;
   return `<env>\n${lines.join("\n")}\n</env>`;
 }

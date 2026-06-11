@@ -245,6 +245,11 @@ export const native = {
         exit_code: number | null;
       }[]
     >("shell_bg_list"),
+  sshExec: (id: number, command: string) =>
+    invoke<{ stdout: string; stderr: string; exitCode: number | null }>(
+      "ssh_exec",
+      { id, command },
+    ),
   gitResolveRepo: (cwd: string) =>
     invoke<GitRepoInfo | null>("git_resolve_repo", {
       cwd,

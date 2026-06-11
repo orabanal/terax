@@ -8,6 +8,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   ArrowRight01Icon,
+  Cancel01Icon,
   CheckListIcon,
   Edit02Icon,
   EyeIcon,
@@ -21,6 +22,7 @@ import {
   RobotIcon,
   SparklesIcon,
   TerminalIcon,
+  Tick01Icon,
   ToolsIcon,
 } from "@hugeicons/core-free-icons";
 import { useChatStore } from "@/modules/ai/store/chatStore";
@@ -40,6 +42,7 @@ const TOOL_META: Record<string, { label: string; icon: typeof File01Icon }> = {
   edit: { label: "Edit", icon: FileEditIcon },
   multi_edit: { label: "Edit", icon: Edit02Icon },
   bash_run: { label: "Run", icon: TerminalIcon },
+  ssh_run: { label: "SSH Run", icon: TerminalIcon },
   bash_background: { label: "Spawn", icon: TerminalIcon },
   bash_logs: { label: "Logs", icon: TerminalIcon },
   bash_list: { label: "Jobs", icon: TerminalIcon },
@@ -87,6 +90,7 @@ function deriveSummary(toolName: string, input: unknown): string | null {
     case "list_directory":
       return str("path");
     case "bash_run":
+    case "ssh_run":
     case "bash_background":
       return str("command");
     case "bash_logs":
@@ -191,9 +195,19 @@ const ToolImpl = ({
         ) : (
           <span className="flex-1" />
         )}
-        {isError && (
-          <span className="shrink-0 text-[10px] font-medium text-destructive">
-            failed
+        {state === "output-available" && (
+          <span className="flex shrink-0 size-4 items-center justify-center rounded-full bg-emerald-500">
+            <HugeiconsIcon icon={Tick01Icon} size={10} strokeWidth={2.5} className="text-white" />
+          </span>
+        )}
+        {state === "output-error" && (
+          <span className="flex shrink-0 size-4 items-center justify-center rounded-full bg-destructive">
+            <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2.5} className="text-white" />
+          </span>
+        )}
+        {state === "output-denied" && (
+          <span className="flex shrink-0 size-4 items-center justify-center rounded-full bg-orange-500">
+            <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2.5} className="text-white" />
           </span>
         )}
       </CollapsibleTrigger>
@@ -270,7 +284,7 @@ function renderInputPreview(
   const str = (k: string) =>
     typeof i[k] === "string" ? (i[k] as string) : null;
 
-  if (toolName === "bash_run" || toolName === "bash_background") {
+  if (toolName === "bash_run" || toolName === "ssh_run" || toolName === "bash_background") {
     const cmd = str("command");
     const cwd = str("cwd");
     if (!cmd) return null;
@@ -431,7 +445,7 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
     );
   }
 
-  if (toolName === "bash_run") {
+  if (toolName === "bash_run" || toolName === "ssh_run") {
     return <BashRunOutput data={o} />;
   }
 

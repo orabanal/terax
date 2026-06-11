@@ -9,7 +9,7 @@ use russh::{ChannelMsg, Disconnect};
 use serde::Deserialize;
 use tauri::ipc::{Channel, Response};
 use tokio::net::lookup_host;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 
 pub struct SshState {
     sessions: Arc<RwLock<HashMap<u32, Arc<SshSession>>>>,
@@ -28,6 +28,7 @@ impl Default for SshState {
 struct SshSession {
     tx: mpsc::Sender<Vec<u8>>,
     resize_tx: mpsc::Sender<(u32, u32)>,
+    handle: Arc<Mutex<Handle<ClientHandler>>>,
 }
 
 pub(crate) struct ClientHandler;
@@ -177,9 +178,11 @@ pub async fn ssh_open(
     let (input_tx, mut input_rx) = mpsc::channel::<Vec<u8>>(64);
     let (resize_tx, mut resize_rx) = mpsc::channel::<(u32, u32)>(8);
 
+    let handle = Arc::new(Mutex::new(session));
     let ssh_session = Arc::new(SshSession {
         tx: input_tx,
         resize_tx,
+        handle: handle.clone(),
     });
     state.sessions.write().unwrap().insert(id, ssh_session);
 
@@ -188,7 +191,8 @@ pub async fn ssh_open(
         let exit_code = run_ssh_loop(&mut channel, &mut input_rx, &mut resize_rx, &on_data).await;
         sessions.write().unwrap().remove(&id);
         let _ = on_exit.send(exit_code);
-        let _ = session.disconnect(Disconnect::ByApplication, "", "English").await;
+        let h = handle.lock().await;
+        let _ = h.disconnect(Disconnect::ByApplication, "", "English").await;
     });
 
     Ok(id)
@@ -266,4 +270,63 @@ pub async fn ssh_resize(
 pub fn ssh_close(state: tauri::State<'_, SshState>, id: u32) -> Result<(), String> {
     state.sessions.write().unwrap().remove(&id);
     Ok(())
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshExecResult {
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: Option<u32>,
+}
+
+/// Execute a command on the remote SSH server via a separate exec channel.
+/// This runs silently — the command is NOT visible in the user's interactive terminal.
+#[tauri::command]
+pub async fn ssh_exec(
+    state: tauri::State<'_, SshState>,
+    id: u32,
+    command: String,
+) -> Result<SshExecResult, String> {
+    let handle = {
+        let sessions = state.sessions.read().unwrap();
+        let s = sessions
+            .get(&id)
+            .ok_or_else(|| format!("no ssh session {id}"))?;
+        s.handle.clone()
+    };
+
+    let mut channel = {
+        let h = handle.lock().await;
+        h.channel_open_session()
+            .await
+            .map_err(|e| format!("Failed to open exec channel: {e}"))?
+    };
+
+    channel
+        .exec(true, command.as_bytes())
+        .await
+        .map_err(|e| format!("exec request failed: {e}"))?;
+
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let mut exit_code: Option<u32> = None;
+
+    while let Some(msg) = channel.wait().await {
+        match msg {
+            ChannelMsg::Data { data } => stdout.extend_from_slice(&data),
+            ChannelMsg::ExtendedData { data, .. } => stderr.extend_from_slice(&data),
+            ChannelMsg::ExitStatus { exit_status } => {
+                exit_code = Some(exit_status);
+            }
+            ChannelMsg::Eof => break,
+            _ => {}
+        }
+    }
+
+    Ok(SshExecResult {
+        stdout: String::from_utf8_lossy(&stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&stderr).into_owned(),
+        exit_code,
+    })
 }

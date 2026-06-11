@@ -246,6 +246,7 @@ pub fn run() {
             ssh::ssh_write,
             ssh::ssh_resize,
             ssh::ssh_close,
+            ssh::ssh_exec,
             sftp::sftp_open,
             sftp::sftp_list_dir,
             sftp::sftp_close,

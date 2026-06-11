@@ -34,6 +34,8 @@ export type ToolContext = {
   getCommandBlocklist: () => string[];
   /** Web search config. Returns null when web search is disabled or unconfigured. */
   getWebSearchConfig: () => WebSearchToolConfig | null;
+  /** Get the SSH session id for the scoped terminal leaf. Returns null if not SSH. */
+  getSshSessionId: () => number | null;
 };
 
 export function resolvePath(rawPath: string, cwd: string | null): string {

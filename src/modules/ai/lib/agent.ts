@@ -23,6 +23,7 @@ import {
   type CustomEndpoint,
   type ProviderId,
 } from "../config";
+import type { ReasoningEffort } from "../store/chatStore";
 import { buildTools, type ToolContext } from "../tools/tools";
 import { compactModelMessagesDetailed } from "./compact";
 import type { ProviderKeys, CustomEndpointKeys } from "./keyring";
@@ -41,6 +42,7 @@ const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => string> =
     write_file: (i) => `Writing ${shortPath(i.path)}`,
     create_directory: (i) => `Creating ${shortPath(i.path)}`,
     bash_run: (i) => `Running ${ellipsize(String(i.command ?? ""), 60)}`,
+    ssh_run: (i) => `Running on server: ${ellipsize(String(i.command ?? ""), 60)}`,
     bash_background: (i) =>
       `Spawning ${ellipsize(String(i.command ?? ""), 60)}`,
     bash_logs: () => `Reading logs`,
@@ -383,10 +385,51 @@ export type RunAgentOptions = {
   customEndpoints?: readonly CustomEndpoint[];
   customEndpointKeys?: CustomEndpointKeys;
   planMode?: boolean;
+  reasoningEffort?: ReasoningEffort;
   projectMemory?: string | null;
   uiMessages: UIMessage[];
   abortSignal?: AbortSignal;
 };
+
+function buildReasoningProviderOptions(
+  effort: ReasoningEffort,
+  provider: ProviderId,
+  // biome-ignore lint/suspicious/noExplicitAny: provider options are provider-specific JSON
+): Record<string, Record<string, any>> | undefined {
+  if (effort === "auto") return undefined;
+
+  if (effort === "none") {
+    switch (provider) {
+      case "openai":
+        return { openai: { reasoningEffort: "none" } };
+      case "anthropic":
+        return { anthropic: { thinking: { type: "disabled" } } };
+      case "google":
+        return { google: { thinkingConfig: { thinkingBudget: 0 } } };
+      default:
+        return undefined;
+    }
+  }
+
+  // low / medium / high
+  switch (provider) {
+    case "openai":
+      return { openai: { reasoningEffort: effort } };
+    case "anthropic": {
+      const budget =
+        effort === "low" ? 2048 : effort === "medium" ? 8192 : 32768;
+      return {
+        anthropic: { thinking: { type: "enabled", budgetTokens: budget } },
+      };
+    }
+    case "google":
+      return { google: { thinkingConfig: { thinkingLevel: effort } } };
+    case "xai":
+      return { xai: { reasoningEffort: effort === "low" ? "low" : "high" } };
+    default:
+      return undefined;
+  }
+}
 
 export async function runAgentStream(opts: RunAgentOptions) {
   const modelId = opts.modelId ?? DEFAULT_MODEL_ID;
@@ -442,6 +485,11 @@ export async function runAgentStream(opts: RunAgentOptions) {
 
   const finalMessages = applyCacheBreakpoints(messages, provider);
 
+  const reasoningOpts = buildReasoningProviderOptions(
+    opts.reasoningEffort ?? "auto",
+    provider,
+  );
+
   let stepsSeen = 0;
   return streamText({
     model,
@@ -449,6 +497,9 @@ export async function runAgentStream(opts: RunAgentOptions) {
     tools: buildTools(opts.toolContext),
     stopWhen: stepCountIs(MAX_AGENT_STEPS),
     abortSignal: opts.abortSignal,
+    ...(reasoningOpts
+      ? { providerOptions: reasoningOpts as Parameters<typeof streamText>[0]["providerOptions"] }
+      : {}),
     onStepFinish: (step) => {
       stepsSeen++;
       if (opts.onStep) {
