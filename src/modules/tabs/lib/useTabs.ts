@@ -922,6 +922,59 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     [],
   );
 
+  /** Clone a terminal tab, preserving SSH config, command, cwd and pane tree. */
+  const cloneTab = useCallback(
+    (tabId: number): number | null => {
+      let newTabId: number | null = null;
+      setTabs((curr) => {
+        const tab = curr.find((t) => t.id === tabId);
+        if (!tab || tab.kind !== "terminal") return curr;
+
+        const idMap = new Map<number, number>();
+
+        function cloneNode(node: PaneNode): PaneNode {
+          if (node.kind === "leaf") {
+            const newId = nextIdRef.current++;
+            idMap.set(node.id, newId);
+            return { kind: "leaf", id: newId, cwd: node.cwd };
+          }
+          const newSplitId = nextIdRef.current++;
+          return {
+            kind: "split",
+            id: newSplitId,
+            dir: node.dir,
+            children: node.children.map(cloneNode),
+          };
+        }
+
+        const newPaneTree = cloneNode(tab.paneTree);
+        const newActiveLeafId =
+          idMap.get(tab.activeLeafId) ?? leafIds(newPaneTree)[0];
+
+        newTabId = nextIdRef.current++;
+        const newTab: TerminalTab = {
+          id: newTabId,
+          kind: "terminal",
+          title: tab.customTitle ?? tab.title,
+          cwd: tab.cwd,
+          paneTree: newPaneTree,
+          activeLeafId: newActiveLeafId,
+          sshHost: tab.sshHost,
+          sshHostId: tab.sshHostId,
+          command: tab.command,
+          blocks: tab.blocks,
+          private: tab.private,
+          customTitle: tab.customTitle,
+        };
+
+        return [...curr, newTab];
+      });
+      if (newTabId !== null) setActiveId(newTabId);
+      return newTabId;
+    },
+    [],
+  );
+
   const resetWorkspace = useCallback((cwd?: string) => {
     const tabId = nextIdRef.current++;
     const leafId = nextIdRef.current++;
@@ -975,6 +1028,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     splitActivePane,
     closeActivePane,
     closePaneByLeaf,
+    cloneTab,
     extractLeafToTab,
     resetWorkspace,
   };

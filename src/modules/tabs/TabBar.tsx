@@ -23,6 +23,7 @@ import {
   Cancel01Icon,
   Clock01Icon,
   ComputerTerminal02Icon,
+  Copy01Icon,
   FolderTransferIcon,
   GitBranchIcon,
   GitCompareIcon,
@@ -53,6 +54,8 @@ type Props = {
   onPin: (id: number) => void;
   /** Set a terminal tab's custom label; empty string resets to default. */
   onRename: (id: number, title: string) => void;
+  /** Clone a terminal tab, replicating its connection and cwd. */
+  onClone: (id: number) => void;
   /** Whether the pinned SFTP tab is currently shown. */
   sftpVisible: boolean;
   /** Toggle the pinned SFTP tab on/off. */
@@ -74,6 +77,7 @@ export function TabBar({
   onClose,
   onPin,
   onRename,
+  onClone,
   sftpVisible,
   onToggleSftp,
   compact,
@@ -284,6 +288,14 @@ export function TabBar({
                         strokeWidth={1.75}
                       />
                       <span className="flex-1">Rename</span>
+                    </ContextMenuItem>
+                    <ContextMenuItem onSelect={() => onClone(t.id)}>
+                      <HugeiconsIcon
+                        icon={Copy01Icon}
+                        size={14}
+                        strokeWidth={1.75}
+                      />
+                      <span className="flex-1">Clone tab</span>
                     </ContextMenuItem>
                     {tabs.length > 1 && (
                       <>

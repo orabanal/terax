@@ -272,7 +272,7 @@ async function openPtyForSession(
       onStatus: (msg) => {
         sshStatusListeners.get(leafId)?.(msg);
       },
-    });
+    }, cwd);
   }
 
   return openPty(

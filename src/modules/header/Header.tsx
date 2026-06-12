@@ -48,6 +48,8 @@ type Props = {
   onPin: (id: number) => void;
   /** Set a terminal tab's custom label; empty string resets to default. */
   onRename: (id: number, title: string) => void;
+  /** Clone a terminal tab, replicating its connection and cwd. */
+  onClone: (id: number) => void;
   /** Whether the pinned SFTP tab is currently shown. */
   sftpVisible: boolean;
   /** Toggle the pinned SFTP tab on/off. */
@@ -79,6 +81,7 @@ export function Header({
   onClose,
   onPin,
   onRename,
+  onClone,
   sftpVisible,
   onToggleSftp,
   onToggleSidebar,
@@ -217,6 +220,7 @@ export function Header({
           onClose={onClose}
           onPin={onPin}
           onRename={onRename}
+          onClone={onClone}
           sftpVisible={sftpVisible}
           onToggleSftp={onToggleSftp}
           compact={compact}

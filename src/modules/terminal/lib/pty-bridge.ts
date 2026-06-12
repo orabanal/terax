@@ -79,6 +79,7 @@ export async function openSshPty(
   host: SshHost,
   password: string | undefined,
   handlers: SshHandlers,
+  cwd?: string,
 ): Promise<PtySession> {
   const onData = new Channel<ArrayBuffer>();
   const onExit = new Channel<number>();
@@ -114,6 +115,7 @@ export async function openSshPty(
       connectTimeout: host.connectTimeout ?? null,
       keepAliveInterval: host.keepAliveInterval ?? null,
       keepAliveMax: host.keepAliveMax ?? null,
+      cwd: cwd ?? null,
     },
     onData,
     onExit,

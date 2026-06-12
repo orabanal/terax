@@ -116,6 +116,7 @@ export default function App() {
     closeActivePane,
     closePaneByLeaf,
     extractLeafToTab,
+    cloneTab,
     resetWorkspace,
   } = useTabs(getLaunchDir() ? { cwd: getLaunchDir() } : undefined);
 
@@ -703,6 +704,13 @@ export default function App() {
     [updateTab],
   );
 
+  const handleCloneTab = useCallback(
+    (id: number) => {
+      cloneTab(id);
+    },
+    [cloneTab],
+  );
+
   const searchTarget = useMemo<SearchTarget>(() => {
     if (isTerminalTab && activeLeafId !== null && activeSearchAddon)
       return {
@@ -813,6 +821,7 @@ export default function App() {
               onClose={handleClose}
               onPin={pinTab}
               onRename={handleRenameTab}
+              onClone={handleCloneTab}
               sftpVisible={sftpTabVisible}
               onToggleSftp={toggleSftpTab}
               onToggleSidebar={toggleSidebar}

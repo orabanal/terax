@@ -58,6 +58,7 @@ pub struct SshOpenOptions {
     pub connect_timeout: Option<u64>,
     pub keep_alive_interval: Option<u64>,
     pub keep_alive_max: Option<u64>,
+    pub cwd: Option<String>,
 }
 
 /// Connect to an SSH server and authenticate. Returns the authenticated handle.
@@ -177,6 +178,15 @@ pub async fn ssh_open(
 
     let (input_tx, mut input_rx) = mpsc::channel::<Vec<u8>>(64);
     let (resize_tx, mut resize_rx) = mpsc::channel::<(u32, u32)>(8);
+
+    if let Some(ref cwd) = opts.cwd {
+        let _ = input_tx
+            .send(format!(
+                "cd '{}'\r",
+                cwd.replace('\'', "'\\''")
+            ).into_bytes())
+            .await;
+    }
 
     let handle = Arc::new(Mutex::new(session));
     let ssh_session = Arc::new(SshSession {
