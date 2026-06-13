@@ -93,7 +93,7 @@ export function AiInputBar() {
 
   useEffect(() => {
     autoresize(c.textareaRef.current);
-  }, [c.value, c.textareaRef]);
+  }, [c.textareaRef]);
 
   const updateTrigger = () => {
     const el = c.textareaRef.current;
@@ -145,11 +145,9 @@ export function AiInputBar() {
     return out;
   }, [fileTrigger, fileQuery, workspaceFiles.files]);
 
-  const fileTriggerOpen = fileTrigger !== null;
-  const snippetTriggerOpen = trigger !== null;
   useEffect(() => {
     setActiveIndex(0);
-  }, [snippetTriggerOpen, fileTriggerOpen, fileQuery]);
+  }, [fileTrigger, trigger, fileQuery]);
 
   const pickerOpen = trigger !== null || fileTrigger !== null;
 

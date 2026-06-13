@@ -333,7 +333,7 @@ export function useTransferQueue(): TransferQueue {
   const resolveConflict = useCallback(
     (id: string, action: SftpConflictAction, applyToAll: boolean) => {
       const rec = recordsRef.current.get(id);
-      if (!rec || rec.status !== "conflict") return;
+      if (rec?.status !== "conflict") return;
       if (applyToAll) {
         applyToAllRef.current = action;
         for (const conflict of recordsRef.current.values()) {

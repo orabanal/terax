@@ -447,7 +447,7 @@ export function GitHistoryPane({
         filesInflightRef.current.delete(sha);
       }
     },
-    [repoRoot],
+    [repoRoot, bumpFiles],
   );
 
   const handleRowClick = useCallback(

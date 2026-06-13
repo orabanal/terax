@@ -133,7 +133,7 @@ export function TabBar({
     if (!el) return;
     const active = el.querySelector<HTMLElement>(`[data-tab-id="${activeId}"]`);
     active?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [activeId, tabs.length]);
+  }, [activeId]);
 
   return (
     <div
@@ -142,6 +142,7 @@ export function TabBar({
     >
       {sftpTab && (
         <button
+          type="button"
           data-tab-id={sftpTab.id}
           onClick={() => onSelect(sftpTab.id)}
           className={cn(

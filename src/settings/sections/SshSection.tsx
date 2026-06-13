@@ -114,9 +114,9 @@ export function SshSection() {
       authType: form.authType,
       keyPath: form.keyPath || undefined,
       initialCommand: form.initialCommand || undefined,
-      keepAliveInterval: !isNaN(keepAlive) && keepAlive > 0 ? keepAlive : undefined,
-      keepAliveMax: !isNaN(keepMax) && keepMax > 0 ? keepMax : undefined,
-      connectTimeout: !isNaN(timeout) && timeout > 0 ? timeout : undefined,
+      keepAliveInterval: !Number.isNaN(keepAlive) && keepAlive > 0 ? keepAlive : undefined,
+      keepAliveMax: !Number.isNaN(keepMax) && keepMax > 0 ? keepMax : undefined,
+      connectTimeout: !Number.isNaN(timeout) && timeout > 0 ? timeout : undefined,
       strictHostKeyChecking: (form.strictHostKeyChecking as SshHost["strictHostKeyChecking"]) || undefined,
       compression: form.compression || undefined,
     };

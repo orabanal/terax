@@ -123,7 +123,7 @@ export { focusSlot, copyFromLeaf, pasteIntoLeaf, pasteClipboardToLeaf, pasteSele
 
 export function writeToSession(leafId: number, data: string): boolean {
   const s = sessions.get(leafId);
-  if (!s || !s.pty) return false;
+  if (!s?.pty) return false;
   void s.pty.write(data);
   return true;
 }
@@ -554,7 +554,7 @@ export function useTerminalSession({
     return () => {
       s.blockListeners.delete(cb);
     };
-  }, [leafId, blocks, initialCwd]);
+  }, [leafId, blocks, initialCwd, sshHost, command]);
 
   const fontSize = usePreferencesStore((p) => p.terminalFontSize);
   const zoomLevel = usePreferencesStore((p) => p.zoomLevel);

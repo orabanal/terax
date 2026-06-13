@@ -50,7 +50,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(
     const containerRef = useRef<HTMLDivElement>(null);
     const barRef = useRef<BlockInputBarHandle>(null);
     const downYRef = useRef<number | null>(null);
-    const { resolvedMode, themeId, customThemes } = useTheme();
+    useTheme();
 
     const session = useTerminalSession({
       leafId,
@@ -70,7 +70,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(
       // Defer one frame so CSS-variable token resolution sees the new class.
       const id = requestAnimationFrame(() => session.applyTheme());
       return () => cancelAnimationFrame(id);
-    }, [resolvedMode, themeId, customThemes, session]);
+    }, [session]);
 
     useImperativeHandle(
       ref,
