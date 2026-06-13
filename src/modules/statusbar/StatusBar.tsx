@@ -13,6 +13,14 @@ import { GitStatusChip } from "./GitStatusChip";
 import { useGitSummary } from "./lib/useGitSummary";
 import type { WorkspaceEnv } from "@/modules/workspace";
 
+export type GitClickInfo = {
+  repoRoot: string | null;
+  sshCwd: string | null;
+  leafId: number | null;
+  isSSH: boolean;
+  branch: string | null;
+};
+
 type Props = {
   cwd: string | null;
   filePath?: string | null;
@@ -23,6 +31,7 @@ type Props = {
   privateActive: boolean;
   leafId: number | null;
   isSSH: boolean;
+  onGitClick?: (info: GitClickInfo) => void;
 };
 
 export function StatusBar({
@@ -35,15 +44,27 @@ export function StatusBar({
   privateActive,
   leafId,
   isSSH,
+  onGitClick,
 }: Props) {
-  const gitSummary = useGitSummary(cwd, leafId, isSSH);
+  const { summary: gitSummary, sshCwd } = useGitSummary(cwd, leafId, isSSH);
 
   return (
     <footer className="flex h-8 shrink-0 items-center justify-between gap-3 border-t border-border/60 bg-card/60 px-3 text-[11px]">
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <WorkspaceEnvSelector onSelect={onWorkspaceChange} />
         <CwdBreadcrumb cwd={cwd} filePath={filePath} home={home} onCd={onCd} />
-        {gitSummary && <GitStatusChip summary={gitSummary} />}
+        {gitSummary && (
+          <GitStatusChip
+            summary={gitSummary}
+            onClick={onGitClick ? () => onGitClick({
+              repoRoot: gitSummary.repoRoot || null,
+              sshCwd,
+              leafId,
+              isSSH,
+              branch: gitSummary.branch,
+            }) : undefined}
+          />
+        )}
         {privateActive ? (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -66,4 +87,3 @@ export function StatusBar({
     </footer>
   );
 }
-

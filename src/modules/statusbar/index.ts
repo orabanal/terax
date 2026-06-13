@@ -1,1 +1,1 @@
-export { StatusBar } from "./StatusBar";
+export { StatusBar, type GitClickInfo } from "./StatusBar";

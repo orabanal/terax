@@ -56,7 +56,7 @@ import {
   SourceControlPanel,
   useSourceControlContext,
 } from "@/modules/source-control";
-import { StatusBar } from "@/modules/statusbar";
+import { StatusBar, type GitClickInfo } from "@/modules/statusbar";
 import {
   MAX_PANES_PER_TAB,
   useTabs,
@@ -73,17 +73,27 @@ import {
   type TerminalPaneHandle,
   useTerminalFileDrop,
 } from "@/modules/terminal";
+import { parseGitDiff, type ParsedGitDiff } from "@/modules/terminal/lib/gitDiffParser";
+import { ptyIdForLeaf } from "@/modules/terminal/lib/useTerminalSession";
 import { ThemeProvider, useThemeFileEditing } from "@/modules/theme";
 import { UpdaterDialog } from "@/modules/updater";
-import { useWorkspaceEnvStore } from "@/modules/workspace";
+import { useWorkspaceEnvStore, currentWorkspaceEnv } from "@/modules/workspace";
 import type { SshHost } from "@/modules/ssh/store";
 import { getSshPassword } from "@/modules/ssh/store";
 import type { SearchAddon } from "@xterm/addon-search";
+import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CloseDialogs } from "./components/CloseDialogs";
 import { WorkspaceSurface } from "./components/WorkspaceSurface";
 import { useTabCloseGuards } from "./hooks/useTabCloseGuards";
 import { useWorkspaceSwitcher } from "./hooks/useWorkspaceSwitcher";
+
+type GitDiffSource = {
+  repoRoot: string | null;
+  sshCwd: string | null;
+  leafId: number | null;
+  isSSH: boolean;
+};
 
 export default function App() {
   const {
@@ -530,6 +540,77 @@ export default function App() {
 
   const [zenMode, setZenMode] = useState(false);
 
+  const [gitDiffOpen, setGitDiffOpen] = useState(false);
+  const [gitDiffData, setGitDiffData] = useState<ParsedGitDiff | null>(null);
+  const [gitDiffLoading, setGitDiffLoading] = useState(false);
+  const [gitDiffBranch, setGitDiffBranch] = useState<string | null>(null);
+  const gitDiffSourceRef = useRef<GitDiffSource | null>(null);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: activeId is the trigger; the body doesn't need its value
+  useEffect(() => {
+    setGitDiffOpen(false);
+  }, [activeId]);
+
+  const fetchGitDiff = useCallback(async (source: GitDiffSource) => {
+    setGitDiffLoading(true);
+    try {
+      let raw = "";
+      if (source.isSSH && source.sshCwd && source.leafId !== null) {
+        const sshId = ptyIdForLeaf(source.leafId);
+        if (sshId !== null) {
+          const safeCwd = source.sshCwd.replace(/'/g, "'\\''");
+          const cmd = `cd '${safeCwd}' && git --no-pager diff HEAD --unified=3 --no-color 2>/dev/null`;
+          const result = await Promise.race([
+            invoke<{ stdout: string; stderr: string; exitCode: number | null }>("ssh_exec", {
+              id: sshId,
+              command: cmd,
+            }),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error("timeout")), 20_000),
+            ),
+          ]);
+          raw = result.stdout;
+        }
+      } else if (!source.isSSH && source.repoRoot) {
+        const result = await invoke<{ diffText: string; truncated: boolean }>("git_diff", {
+          repoRoot: source.repoRoot,
+          path: null,
+          staged: false,
+          workspace: currentWorkspaceEnv(),
+        });
+        raw = result.diffText;
+      }
+      setGitDiffData(parseGitDiff(raw));
+    } catch {
+      setGitDiffData(null);
+    } finally {
+      setGitDiffLoading(false);
+    }
+  }, []);
+
+  const handleGitClick = useCallback((info: GitClickInfo) => {
+    if (gitDiffOpen) {
+      setGitDiffOpen(false);
+      return;
+    }
+    const source: GitDiffSource = {
+      repoRoot: info.repoRoot,
+      sshCwd: info.sshCwd,
+      leafId: info.leafId,
+      isSSH: info.isSSH,
+    };
+    gitDiffSourceRef.current = source;
+    setGitDiffBranch(info.branch);
+    setGitDiffOpen(true);
+    void fetchGitDiff(source);
+  }, [fetchGitDiff, gitDiffOpen]);
+
+  const handleGitRefresh = useCallback(() => {
+    if (gitDiffSourceRef.current) {
+      void fetchGitDiff(gitDiffSourceRef.current);
+    }
+  }, [fetchGitDiff]);
+
   const shortcutHandlers = useMemo<ShortcutHandlers>(
     () => ({
       "commandPalette.open": () => setCommandPaletteOpen(true),
@@ -913,6 +994,14 @@ export default function App() {
                       onOpenCommitFile={openCommitFileDiffTab}
                       onGitHistorySearchHandle={setGitHistoryHandle}
                       onOpenFile={handleOpenFile}
+                      gitDiffPanel={{
+                        open: gitDiffOpen && isTerminalTab,
+                        onClose: () => setGitDiffOpen(false),
+                        data: gitDiffData,
+                        loading: gitDiffLoading,
+                        branch: gitDiffBranch,
+                        onRefresh: handleGitRefresh,
+                      }}
                     />
                   </div>
                 </div>
@@ -942,6 +1031,7 @@ export default function App() {
               }
               leafId={activeLeafId}
               isSSH={activeTerminalTab?.sshHost != null}
+              onGitClick={isTerminalTab ? handleGitClick : undefined}
             />
           )}
 

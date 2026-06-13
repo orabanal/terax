@@ -28,6 +28,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { TerminalPane, type TerminalPaneHandle } from "./TerminalPane";
+import { GitDiffPanel, type GitDiffPanelProps } from "./GitDiffPanel";
 import { useTerminalDropStore } from "./lib/dropStore";
 import {
   clearLeaf,
@@ -60,6 +61,7 @@ type Props = {
   onSplit?: (dir: SplitDir) => void;
   onClosePane?: (leafId: number) => void;
   onExtractToTab?: (leafId: number) => void;
+  gitDiffPanel?: GitDiffPanelProps;
 };
 
 export function PaneTreeView({
@@ -77,6 +79,7 @@ export function PaneTreeView({
   onSplit,
   onClosePane,
   onExtractToTab,
+  gitDiffPanel,
 }: Props) {
   if (node.kind === "leaf") {
     const focused = node.id === activeLeafId;
@@ -84,6 +87,7 @@ export function PaneTreeView({
     const isHovered = hoveredLeafId === node.id;
     const dimmed = multiPane && hoveredLeafId !== null && !isHovered;
     const showBorder = multiPane && isHovered;
+    const showDiff = node.id === activeLeafId;
     return (
       <ContextMenu>
         <ContextMenuTrigger asChild>
@@ -119,6 +123,7 @@ export function PaneTreeView({
               onExit={(_id, code) => b.onExit(code)}
             />
             <DropOverlay leafId={node.id} />
+            {showDiff && gitDiffPanel && <GitDiffPanel {...gitDiffPanel} />}
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent
@@ -234,6 +239,7 @@ export function PaneTreeView({
               onSplit={onSplit}
               onClosePane={onClosePane}
               onExtractToTab={onExtractToTab}
+              gitDiffPanel={gitDiffPanel}
             />
           </ResizablePanel>
         </Fragment>

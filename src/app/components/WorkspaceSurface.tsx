@@ -7,6 +7,7 @@ import { PreviewStack } from "@/modules/preview";
 import { SftpStack } from "@/modules/sftp";
 import type { Tab } from "@/modules/tabs";
 import { TerminalStack } from "@/modules/terminal";
+import type { GitDiffPanelProps } from "@/modules/terminal/GitDiffPanel";
 
 type TerminalStackProps = ComponentProps<typeof TerminalStack>;
 type EditorStackProps = ComponentProps<typeof EditorStack>;
@@ -36,6 +37,7 @@ type Props = {
   onOpenCommitFile: GitHistoryStackProps["onOpenCommitFile"];
   onGitHistorySearchHandle: GitHistoryStackProps["onSearchHandle"];
   onOpenFile?: (path: string) => void;
+  gitDiffPanel?: GitDiffPanelProps;
 };
 
 /**
@@ -65,6 +67,7 @@ export function WorkspaceSurface({
   onOpenCommitFile,
   onGitHistorySearchHandle,
   onOpenFile,
+  gitDiffPanel,
 }: Props) {
   const kind = activeTab?.kind;
   const isTerminalTab = kind === "terminal";
@@ -96,6 +99,7 @@ export function WorkspaceSurface({
           splitPane={splitPane}
           closePane={closePane}
           extractToTab={extractToTab}
+          gitDiffPanel={gitDiffPanel}
         />
       </div>
       <div

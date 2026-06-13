@@ -4,6 +4,7 @@ import type { SearchAddon } from "@xterm/addon-search";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PaneTreeView } from "./PaneTreeView";
 import type { TerminalPaneHandle } from "./TerminalPane";
+import type { GitDiffPanelProps } from "./GitDiffPanel";
 import { leafIds } from "./lib/panes";
 import { SshConnectingModal } from "@/modules/ssh/SshConnectingModal";
 
@@ -19,6 +20,7 @@ type Props = {
   splitPane: (tabId: number, dir: SplitDir) => void;
   closePane: (leafId: number) => void;
   extractToTab: (tabId: number, leafId: number) => void;
+  gitDiffPanel?: GitDiffPanelProps;
 };
 
 type Bundle = {
@@ -39,6 +41,7 @@ export function TerminalStack({
   splitPane,
   closePane,
   extractToTab,
+  gitDiffPanel,
 }: Props) {
   const terminals = useMemo(
     () => tabs.filter((t) => t.kind === "terminal"),
@@ -125,6 +128,7 @@ export function TerminalStack({
               onSplit={(dir) => splitPane(t.id, dir)}
               onClosePane={(leafId) => closePane(leafId)}
               onExtractToTab={(leafId) => extractToTab(t.id, leafId)}
+              gitDiffPanel={gitDiffPanel}
             />
             {sshHost && leaves.map((lid) => (
               <SshConnectingModal

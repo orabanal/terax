@@ -10,6 +10,7 @@ pub(crate) const MIN_GIT_VERSION: &str = "2.23";
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitQuickSummary {
+    pub repo_root: String,
     pub branch: String,
     pub files: u32,
     pub added: u32,

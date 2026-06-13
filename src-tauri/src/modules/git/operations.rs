@@ -65,6 +65,7 @@ pub fn quick_summary(
     let removed = parse_shortstat_num(&shortstat, "deletion");
 
     Ok(Some(GitQuickSummary {
+        repo_root: canonical_root.git_path,
         branch,
         files,
         added,
