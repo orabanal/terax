@@ -9,6 +9,8 @@ import { IncognitoIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { CwdBreadcrumb } from "./CwdBreadcrumb";
 import { WorkspaceEnvSelector } from "./WorkspaceEnvSelector";
+import { GitStatusChip } from "./GitStatusChip";
+import { useGitSummary } from "./lib/useGitSummary";
 import type { WorkspaceEnv } from "@/modules/workspace";
 
 type Props = {
@@ -19,6 +21,8 @@ type Props = {
   onWorkspaceChange: (env: WorkspaceEnv) => void;
   onOpenMini: () => void;
   privateActive: boolean;
+  leafId: number | null;
+  isSSH: boolean;
 };
 
 export function StatusBar({
@@ -29,12 +33,17 @@ export function StatusBar({
   onWorkspaceChange,
   onOpenMini,
   privateActive,
+  leafId,
+  isSSH,
 }: Props) {
+  const gitSummary = useGitSummary(cwd, leafId, isSSH);
+
   return (
     <footer className="flex h-8 shrink-0 items-center justify-between gap-3 border-t border-border/60 bg-card/60 px-3 text-[11px]">
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <WorkspaceEnvSelector onSelect={onWorkspaceChange} />
         <CwdBreadcrumb cwd={cwd} filePath={filePath} home={home} onCd={onCd} />
+        {gitSummary && <GitStatusChip summary={gitSummary} />}
         {privateActive ? (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -57,3 +66,4 @@ export function StatusBar({
     </footer>
   );
 }
+

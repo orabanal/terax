@@ -9,13 +9,80 @@ use crate::modules::git::process::{
 };
 use crate::modules::git::types::{
     DiscardEntry, GitCommitFileChange, GitCommitResult, GitDiffContentResult, GitDiffResult,
-    GitLogEntry, GitOutput, GitPanelSnapshot, GitPushResult, GitRepoInfo, GitStatusSnapshot,
-    TextSource, DEFAULT_TIMEOUT_SECS, NETWORK_TIMEOUT_SECS,
+    GitLogEntry, GitOutput, GitPanelSnapshot, GitPushResult, GitQuickSummary, GitRepoInfo,
+    GitStatusSnapshot, TextSource, DEFAULT_TIMEOUT_SECS, NETWORK_TIMEOUT_SECS,
 };
 use crate::modules::git::utils::{
     authorized_repo_root, canonical_dir, resolve_within_repo, split_upstream, ResolvedGitDirectory,
 };
 use crate::modules::workspace::{WorkspaceEnv, WorkspaceRegistry};
+
+pub fn quick_summary(
+    registry: &WorkspaceRegistry,
+    cwd: &str,
+    workspace: &WorkspaceEnv,
+) -> Result<Option<GitQuickSummary>> {
+    let cwd = canonical_dir(registry, cwd, workspace)?;
+    if !registry.is_authorized(&cwd.local_path) {
+        return Err(GitError::PathOutsideWorkspace(cwd.local_path));
+    }
+    ensure_git_available(&cwd.workspace)?;
+
+    let Some(root_line) = git_stdout_line_opt(
+        &cwd.workspace,
+        &cwd.git_path,
+        ["rev-parse", "--show-toplevel"],
+    )?
+    else {
+        return Ok(None);
+    };
+
+    let canonical_root = canonical_dir(registry, &root_line, &cwd.workspace)?;
+    let _ = registry.authorize(&canonical_root.local_path);
+
+    let Some(branch) = git_stdout_line_opt(
+        &canonical_root.workspace,
+        &canonical_root.git_path,
+        ["rev-parse", "--abbrev-ref", "HEAD"],
+    )?
+    else {
+        return Ok(None);
+    };
+
+    if branch.is_empty() {
+        return Ok(None);
+    }
+
+    let shortstat = git_stdout_line_opt(
+        &canonical_root.workspace,
+        &canonical_root.git_path,
+        ["diff", "--shortstat", "HEAD"],
+    )?
+    .unwrap_or_default();
+
+    let files = parse_shortstat_num(&shortstat, "file");
+    let added = parse_shortstat_num(&shortstat, "insertion");
+    let removed = parse_shortstat_num(&shortstat, "deletion");
+
+    Ok(Some(GitQuickSummary {
+        branch,
+        files,
+        added,
+        removed,
+    }))
+}
+
+fn parse_shortstat_num(s: &str, keyword: &str) -> u32 {
+    for part in s.split(',') {
+        let part = part.trim();
+        if part.contains(keyword) {
+            if let Some(tok) = part.split_whitespace().next() {
+                return tok.parse().unwrap_or(0);
+            }
+        }
+    }
+    0
+}
 
 pub fn resolve_repo(
     registry: &WorkspaceRegistry,

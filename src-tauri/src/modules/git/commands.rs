@@ -3,7 +3,7 @@ use tauri::{AppHandle, Manager};
 use crate::modules::git::operations;
 use crate::modules::git::types::{
     DiscardEntry, GitCommitFileChange, GitCommitResult, GitDiffContentResult, GitDiffResult,
-    GitLogEntry, GitPanelSnapshot, GitPushResult, GitRepoInfo, GitStatusSnapshot,
+    GitLogEntry, GitPanelSnapshot, GitPushResult, GitQuickSummary, GitRepoInfo, GitStatusSnapshot,
 };
 use crate::modules::workspace::{WorkspaceEnv, WorkspaceRegistry};
 
@@ -278,6 +278,19 @@ pub async fn git_remote_url(
     let workspace = WorkspaceEnv::from_option(workspace);
     blocking(app, move |r| {
         operations::remote_url(r, &repo_root, &remote, &workspace).map_err(Into::into)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn git_quick_summary(
+    cwd: String,
+    workspace: Option<WorkspaceEnv>,
+    app: AppHandle,
+) -> Result<Option<GitQuickSummary>, String> {
+    let workspace = WorkspaceEnv::from_option(workspace);
+    blocking(app, move |r| {
+        operations::quick_summary(r, &cwd, &workspace).map_err(Into::into)
     })
     .await
 }

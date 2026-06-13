@@ -940,6 +940,8 @@ export default function App() {
               privateActive={
                 activeTab?.kind === "terminal" && activeTab.private === true
               }
+              leafId={activeLeafId}
+              isSSH={activeTerminalTab?.sshHost != null}
             />
           )}
 
