@@ -3,10 +3,12 @@ export { TerminalStack } from "./TerminalStack";
 export {
   clearFocusedTerminal,
   disposeSession,
+  getCwdForLeaf,
   leafHasForegroundProcess,
   leafIdForPty,
   ptyIdForLeaf,
   respawnSession,
+  subscribePtyData,
   whenSessionReady,
   writeToSession,
 } from "./lib/useTerminalSession";

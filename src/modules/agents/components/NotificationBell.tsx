@@ -7,12 +7,9 @@ import {
 import { cn } from "@/lib/utils";
 import {
   CheckmarkCircle02Icon,
-  Loading03Icon,
   Notification01Icon,
-  Notification03Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { invoke } from "@tauri-apps/api/core";
 import { useMemo, useState } from "react";
 import { AgentIcon } from "../lib/agentIcon";
 import type { AgentNotification, AgentStatus } from "../lib/types";
@@ -117,8 +114,6 @@ function NotificationRow({
 
 export function NotificationBell({ onActivate, onActivateLocal }: Props) {
   const [open, setOpen] = useState(false);
-  const [hooksReady, setHooksReady] = useState<boolean | null>(null);
-  const [installing, setInstalling] = useState(false);
   const sessions = useAgentStore((s) => s.sessions);
   const localAgent = useAgentStore((s) => s.localAgent);
   const notifications = useAgentStore((s) => s.notifications);
@@ -136,30 +131,9 @@ export function NotificationBell({ onActivate, onActivateLocal }: Props) {
   ).length;
   const badge = waitingCount + unreadDone;
 
-  const refreshHooks = () => {
-    invoke<boolean>("agent_claude_hooks_status")
-      .then(setHooksReady)
-      .catch(() => setHooksReady(null));
-  };
-
   const onOpenChange = (next: boolean) => {
     setOpen(next);
-    if (next) {
-      markAllRead();
-      refreshHooks();
-    }
-  };
-
-  const enableClaudeHooks = async () => {
-    setInstalling(true);
-    try {
-      await invoke("agent_enable_claude_hooks");
-      setHooksReady(true);
-    } catch {
-      setHooksReady(false);
-    } finally {
-      setInstalling(false);
-    }
+    if (next) markAllRead();
   };
 
   const activate = (tabId: number, leafId: number) => {
@@ -253,37 +227,15 @@ export function NotificationBell({ onActivate, onActivateLocal }: Props) {
         )}
 
         <div className="border-t flex justify-center border-border/60 p-1">
-          {hooksReady ? (
-            <div className="flex items-center gap-2 px-2 py-1.5 text-[11px] text-muted-foreground">
-              <HugeiconsIcon
-                icon={CheckmarkCircle02Icon}
-                size={13}
-                strokeWidth={1.75}
-                className="text-primary"
-              />
-              Claude Code alerts enabled
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={enableClaudeHooks}
-              disabled={installing}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-60"
-            >
-              <HugeiconsIcon
-                icon={installing ? Loading03Icon : Notification03Icon}
-                size={14}
-                strokeWidth={1.75}
-                className={cn(installing && "animate-spin")}
-              />
-              {installing ? "Enabling..." : "Enable Claude Code alerts"}
-            </button>
-          )}
-          {hooksReady === false && !installing ? (
-            <p className="px-2 pt-1 text-[11px] text-destructive">
-              Could not update Claude Code config.
-            </p>
-          ) : null}
+          <div className="flex items-center gap-2 px-2 py-1.5 text-[11px] text-muted-foreground">
+            <HugeiconsIcon
+              icon={CheckmarkCircle02Icon}
+              size={13}
+              strokeWidth={1.75}
+              className="text-primary"
+            />
+            Claude Code tracking active
+          </div>
         </div>
       </PopoverContent>
     </Popover>

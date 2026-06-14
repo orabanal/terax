@@ -1,6 +1,6 @@
 pub mod modules;
 
-use modules::{agent, fs, git, net, pty, secrets, shell, sftp, ssh, workspace};
+use modules::{agent, fs, git, net, pty, secrets, shell, sftp, ssh, transcript_watcher, workspace};
 use std::sync::Mutex;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 #[cfg(target_os = "macos")]
@@ -154,6 +154,7 @@ pub fn run() {
                     }
                 });
             }
+            transcript_watcher::start(_app.handle().clone());
             Ok(())
         })
         .manage(pty::PtyState::default())

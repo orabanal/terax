@@ -81,6 +81,31 @@ type Session = {
 const sessions = new Map<number, Session>();
 export const sshStatusListeners = new Map<number, (msg: string) => void>();
 
+// PTY data subscribers keyed by leafId. Used by SSH agent detection.
+const ptyDataSubscribers = new Map<number, Set<(bytes: Uint8Array) => void>>();
+
+export function subscribePtyData(
+  leafId: number,
+  cb: (bytes: Uint8Array) => void,
+): () => void {
+  let set = ptyDataSubscribers.get(leafId);
+  if (!set) {
+    set = new Set();
+    ptyDataSubscribers.set(leafId, set);
+  }
+  set.add(cb);
+  return () => {
+    const s = ptyDataSubscribers.get(leafId);
+    if (!s) return;
+    s.delete(cb);
+    if (s.size === 0) ptyDataSubscribers.delete(leafId);
+  };
+}
+
+export function getCwdForLeaf(leafId: number): string | null {
+  return sessions.get(leafId)?.lastCwd ?? null;
+}
+
 /** Returns true if the session for `leafId` already has an active PTY. */
 export function isSessionConnected(leafId: number): boolean {
   return !!sessions.get(leafId)?.pty;
@@ -247,6 +272,7 @@ function deliverPtyBytes(leafId: number, bytes: Uint8Array): void {
   const slot = getSlotForLeaf(leafId);
   if (slot) slot.term.write(bytes);
   else s.dormantRing.push(bytes);
+  ptyDataSubscribers.get(leafId)?.forEach((cb) => cb(bytes));
 }
 
 async function openPtyForSession(

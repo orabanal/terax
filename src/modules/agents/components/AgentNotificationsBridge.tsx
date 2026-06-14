@@ -1,7 +1,14 @@
 import type { Tab } from "@/modules/tabs";
-import { hasLeaf, leafIdForPty } from "@/modules/terminal";
+import {
+  getCwdForLeaf,
+  hasLeaf,
+  leafIdForPty,
+  leafIds,
+  subscribePtyData,
+} from "@/modules/terminal";
 import { listen } from "@tauri-apps/api/event";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { PtyClaudeTracker } from "../lib/claudeCliTracker";
 import { maybeTriggerManagedReview } from "../lib/review";
 import { routeAgentNotification } from "../lib/route";
 import type { AgentSession, AgentSignal } from "../lib/types";
@@ -16,6 +23,8 @@ type Ctx = {
   focused: boolean;
   onActivate: Activate;
 };
+
+// ─── OSC-based signals (local PTY via AgentDetector in Rust) ─────────────────
 
 function tabInfo(
   tabs: Tab[],
@@ -48,7 +57,6 @@ function route(
     body: info?.title,
     focused: ctx.focused,
     visible: ctx.activeId === session.tabId,
-    // Stop fires every turn, so finished only updates the bell; attention toasts.
     allowToast: kind === "attention",
     tabId: session.tabId,
     leafId: session.leafId,
@@ -91,6 +99,142 @@ function handleSignal(sig: AgentSignal, ctx: Ctx): void {
   }
 }
 
+// ─── Transcript-based signals (local, passive, no hooks needed) ──────────────
+
+type TranscriptPayload = { kind: "attention" | "finished"; projectDir: string };
+
+// Decode the directory name Claude Code uses in ~/.claude/projects/.
+// Claude Code encodes absolute paths by stripping the leading / and replacing
+// remaining / with -.  e.g. /Users/foo/bar -> Users-foo-bar
+function decodeProjectDir(encoded: string): string {
+  if (!encoded || encoded === ".") return "";
+  return `/${encoded.split("-").filter(Boolean).join("/")}`;
+}
+
+function findLeafForPath(
+  tabs: Tab[],
+  decodedPath: string,
+): { leafId: number; tabId: number; title: string } | null {
+  if (!decodedPath) return null;
+  for (const t of tabs) {
+    if (t.kind !== "terminal") continue;
+    for (const lId of leafIds(t.paneTree)) {
+      const cwd = getCwdForLeaf(lId);
+      if (!cwd) continue;
+      if (
+        decodedPath === cwd ||
+        decodedPath.startsWith(cwd) ||
+        cwd.startsWith(decodedPath)
+      ) {
+        return { leafId: lId, tabId: t.id, title: t.title };
+      }
+    }
+  }
+  return null;
+}
+
+function handleTranscriptEvent(payload: TranscriptPayload, ctx: Ctx): void {
+  const decoded = decodeProjectDir(payload.projectDir);
+  const match = findLeafForPath(ctx.tabs, decoded);
+  const store = useAgentStore.getState();
+
+  if (match) {
+    const existing = store.sessions[match.leafId];
+    if (payload.kind === "attention") {
+      if (!existing) store.start(match.leafId, match.tabId, "claude");
+      store.setStatus(match.leafId, "waiting");
+      const session = store.sessions[match.leafId];
+      if (session) route(session, "attention", ctx);
+    } else {
+      if (existing) {
+        store.setStatus(match.leafId, "waiting");
+        route(existing, "finished", ctx);
+        maybeTriggerManagedReview(match.leafId);
+      } else {
+        // Claude Code finished but no active OSC session — still show notification.
+        routeAgentNotification({
+          source: "terminal",
+          agent: "claude",
+          kind: "finished",
+          title: "claude finished",
+          body: match.title,
+          focused: ctx.focused,
+          visible: ctx.activeId === match.tabId,
+          allowToast: false,
+          tabId: match.tabId,
+          leafId: match.leafId,
+          onActivate: () => ctx.onActivate(match.tabId, match.leafId),
+        });
+      }
+    }
+  } else {
+    // Could not map to a specific session — show generic notification.
+    routeAgentNotification({
+      source: "terminal",
+      agent: "claude",
+      kind: payload.kind === "attention" ? "attention" : "finished",
+      title:
+        payload.kind === "attention"
+          ? "claude needs your input"
+          : "claude finished",
+      focused: ctx.focused,
+      visible: false,
+      allowToast: payload.kind === "attention",
+      onActivate: () => {},
+    });
+  }
+}
+
+// ─── SSH text-based tracking (ClaudeCliTracker per SSH leaf) ─────────────────
+
+function sshLeafIds(tabs: Tab[]): { leafId: number; tabId: number }[] {
+  const result: { leafId: number; tabId: number }[] = [];
+  for (const t of tabs) {
+    if (t.kind !== "terminal" || !t.sshHostId) continue;
+    for (const lId of leafIds(t.paneTree)) {
+      result.push({ leafId: lId, tabId: t.id });
+    }
+  }
+  return result;
+}
+
+function handleSshStateChange(
+  leafId: number,
+  tabId: number,
+  newState: string,
+  prevState: string,
+  ctx: Ctx,
+): void {
+  const store = useAgentStore.getState();
+
+  if (newState === "active" && prevState === "idle") {
+    store.start(leafId, tabId, "claude");
+    return;
+  }
+  if (newState === "permission-wait") {
+    if (!store.sessions[leafId]) store.start(leafId, tabId, "claude");
+    store.setStatus(leafId, "waiting");
+    const session = store.sessions[leafId];
+    if (session) route(session, "attention", ctx);
+    return;
+  }
+  if (newState === "active" && prevState === "permission-wait") {
+    store.setStatus(leafId, "working");
+    return;
+  }
+  if (newState === "idle") {
+    const session = store.sessions[leafId];
+    if (session) {
+      route(session, "finished", ctx);
+      maybeTriggerManagedReview(leafId);
+      store.finish(leafId);
+    }
+    return;
+  }
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
+
 export function AgentNotificationsBridge({
   tabs,
   activeId,
@@ -104,6 +248,7 @@ export function AgentNotificationsBridge({
   const ctxRef = useRef<Ctx>({ tabs, activeId, focused, onActivate });
   ctxRef.current = { tabs, activeId, focused, onActivate };
 
+  // OSC-based signals from local PTY AgentDetector.
   useEffect(() => {
     let alive = true;
     let unlisten: (() => void) | undefined;
@@ -120,6 +265,67 @@ export function AgentNotificationsBridge({
       unlisten?.();
     };
   }, []);
+
+  // Transcript-based signals from the Rust watcher (passive, no hooks needed).
+  useEffect(() => {
+    let alive = true;
+    let unlisten: (() => void) | undefined;
+    listen<TranscriptPayload>("terax:claude-transcript", (e) =>
+      handleTranscriptEvent(e.payload, ctxRef.current),
+    )
+      .then((u) => {
+        if (alive) unlisten = u;
+        else u();
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+      unlisten?.();
+    };
+  }, []);
+
+  // SSH text-based tracking -- one PtyClaudeTracker per SSH leaf.
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+
+  // Stable key that changes only when the SSH leaf set changes (avoids
+  // biome's conflicting exhaustive-deps / extra-deps warnings on a derived
+  // expression used directly in the dep array).
+  const sshLeafKey = useMemo(
+    () => sshLeafIds(tabs).map((x) => x.leafId).join(","),
+    [tabs],
+  );
+
+  useEffect(() => {
+    const sshLeaves = sshLeafIds(tabsRef.current);
+    if (sshLeaves.length === 0) return;
+
+    const unsubs: Array<() => void> = [];
+
+    for (const { leafId, tabId } of sshLeaves) {
+      const tracker = new PtyClaudeTracker(({ state, previousState }) => {
+        handleSshStateChange(
+          leafId,
+          tabId,
+          state,
+          previousState,
+          ctxRef.current,
+        );
+      });
+
+      const unsub = subscribePtyData(leafId, (bytes) =>
+        tracker.processBytes(bytes),
+      );
+      unsubs.push(() => {
+        unsub();
+        tracker.reset();
+      });
+    }
+
+    return () => {
+      for (const u of unsubs) u();
+    };
+  }, [sshLeafKey]);
 
   return null;
 }

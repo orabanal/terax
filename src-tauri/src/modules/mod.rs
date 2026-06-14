@@ -8,4 +8,5 @@ pub mod secrets;
 pub mod shell;
 pub mod sftp;
 pub mod ssh;
+pub mod transcript_watcher;
 pub mod workspace;
