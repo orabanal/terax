@@ -34,9 +34,18 @@ import {
   ServerStack01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { labelFor } from "./lib/tabLabel";
 import type { EditorTab, Tab } from "./lib/useTabs";
+
+type DragState = {
+  tabId: number;
+  startIndex: number;
+  startX: number;
+  /** True once the mouse has moved past the drag threshold. */
+  active: boolean;
+};
 
 type Props = {
   tabs: Tab[];
@@ -56,6 +65,8 @@ type Props = {
   onRename: (id: number, title: string) => void;
   /** Clone a terminal tab, replicating its connection and cwd. */
   onClone: (id: number) => void;
+  /** Reorder tabs by moving tabId to position toIndex in the full tabs array. */
+  onMoveTab: (tabId: number, toIndex: number) => void;
   /** Whether the pinned SFTP tab is currently shown. */
   sftpVisible: boolean;
   /** Toggle the pinned SFTP tab on/off. */
@@ -78,6 +89,7 @@ export function TabBar({
   onPin,
   onRename,
   onClone,
+  onMoveTab,
   sftpVisible,
   onToggleSftp,
   compact,
@@ -90,6 +102,119 @@ export function TabBar({
   const scrollableTabs = sftpTab
     ? tabs.filter((t) => t.kind !== "sftp")
     : tabs;
+
+  // --- Drag-and-drop tab reordering (ref-based, no stale closures) ---
+  const dragRef = useRef<DragState | null>(null);
+  const [dropTarget, setDropTarget] = useState<number | null>(null);
+  const [draggedTabId, setDraggedTabId] = useState<number | null>(null);
+  const [ghostPos, setGhostPos] = useState<{ x: number; y: number } | null>(null);
+  const tabsRef = useRef(scrollableTabs);
+  tabsRef.current = scrollableTabs;
+  const onMoveTabRef = useRef(onMoveTab);
+  onMoveTabRef.current = onMoveTab;
+  const sftpTabRef = useRef(sftpTab);
+  sftpTabRef.current = sftpTab;
+  const scrollRefForDrag = scrollRef;
+
+  const resolveDropIndex = useCallback(
+    (clientX: number): number | null => {
+      const container = scrollRefForDrag.current;
+      if (!container) return null;
+      const triggers = container.querySelectorAll<HTMLElement>("[data-tab-id]");
+      const currentTabs = tabsRef.current;
+      for (const el of triggers) {
+        const rect = el.getBoundingClientRect();
+        const midX = rect.left + rect.width / 2;
+        const tabId = Number(el.dataset.tabId);
+        const idx = currentTabs.findIndex((t) => t.id === tabId);
+        if (idx === -1) continue;
+        if (clientX < midX) return idx;
+      }
+      return currentTabs.length;
+    },
+    [scrollRefForDrag],
+  );
+
+  useEffect(() => {
+    const DRAG_THRESHOLD = 4;
+
+    const onMouseMove = (e: MouseEvent) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+
+      if (!drag.active) {
+        if (Math.abs(e.clientX - drag.startX) < DRAG_THRESHOLD) return;
+        drag.active = true;
+        setDraggedTabId(drag.tabId);
+      }
+
+      e.preventDefault();
+
+      const idx = resolveDropIndex(e.clientX);
+      setDropTarget(idx);
+      setGhostPos({ x: e.clientX, y: e.clientY });
+
+      // Auto-scroll when near edges
+      const container = scrollRefForDrag.current;
+      if (container) {
+        const rect = container.getBoundingClientRect();
+        const EDGE = 32;
+        if (e.clientX < rect.left + EDGE) {
+          container.scrollLeft -= 8;
+        } else if (e.clientX > rect.right - EDGE) {
+          container.scrollLeft += 8;
+        }
+      }
+    };
+
+    const onMouseUp = (e: MouseEvent) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+
+      const wasActive = drag.active;
+      const startIndex = drag.startIndex;
+
+      dragRef.current = null;
+      setDraggedTabId(null);
+      setDropTarget(null);
+      setGhostPos(null);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+
+      if (!wasActive) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const toIndex = resolveDropIndex(e.clientX);
+      if (toIndex !== null && toIndex !== startIndex) {
+        // Convert scrollableTabs index to full tabs array index
+        const sftpOffset = sftpTabRef.current ? 1 : 0;
+        const adjustedTo = toIndex > startIndex ? toIndex - 1 : toIndex;
+        const fullToIndex = adjustedTo + sftpOffset;
+        onMoveTabRef.current(drag.tabId, fullToIndex);
+      }
+    };
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+    return () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+  }, [resolveDropIndex, scrollRefForDrag]);
+
+  const handleTabMouseDown = useCallback(
+    (e: React.MouseEvent, tabId: number) => {
+      if (e.button !== 0 || editingId !== null) return;
+      const idx = tabsRef.current.findIndex((t) => t.id === tabId);
+      if (idx === -1) return;
+      dragRef.current = { tabId, startIndex: idx, startX: e.clientX, active: false };
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "grabbing";
+    },
+    [editingId],
+  );
+  // --- End drag-and-drop ---
   const sshHosts = useSshHostsStore((s) => s.hosts);
   const sshHydrated = useSshHostsStore((s) => s.hydrated);
   const sshInit = useSshHostsStore((s) => s.init);
@@ -135,7 +260,12 @@ export function TabBar({
     active?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [activeId]);
 
+  const draggedTab = draggedTabId !== null
+    ? scrollableTabs.find((t) => t.id === draggedTabId) ?? null
+    : null;
+
   return (
+    <>
     <div
       data-tauri-drag-region
       className="flex min-w-0 shrink items-center"
@@ -167,12 +297,18 @@ export function TabBar({
             onValueChange={(v) => onSelect(Number(v))}
           >
             <TabsList className="h-7 w-max gap-0.5 bg-transparent p-0">
-              {scrollableTabs.map((t) => {
+              {scrollableTabs.map((t, tabIndex) => {
               const isPreview = t.kind === "editor" && (t as EditorTab).preview;
               const isActive = t.id === activeId;
+              const isDragged = draggedTabId === t.id;
               // The SFTP tab is pinned and managed by the "Show SFTP" toggle,
               // so it never shows the inline close affordance.
               const closable = tabs.length > 1 && t.kind !== "sftp";
+
+              const dropIndicator =
+                dropTarget === tabIndex ? (
+                  <div className="w-0.5 shrink-0 self-stretch rounded-full bg-primary" />
+                ) : null;
 
               // While renaming, render a non-button cell so the <input> is not
               // nested inside the trigger <button> (invalid HTML, and WebKit
@@ -220,9 +356,11 @@ export function TabBar({
                   }}
                   onMouseDown={(e) => {
                     if (e.button === 1) e.preventDefault();
+                    handleTabMouseDown(e, t.id);
                   }}
                   className={cn(
                     "group h-7 shrink-0 gap-1.5 rounded-md text-xs transition-colors hover:text-foreground/80 justify-between",
+                    isDragged && "opacity-40",
                     isActive
                       ? "bg-accent text-foreground"
                       : "text-muted-foreground",
@@ -273,10 +411,10 @@ export function TabBar({
                 </TabsTrigger>
               );
 
-              if (t.kind !== "terminal") return trigger;
+              if (t.kind !== "terminal") return <Fragment key={t.id}>{dropIndicator}{trigger}</Fragment>;
 
               return (
-                <ContextMenu key={t.id}>
+                <Fragment key={t.id}>{dropIndicator}<ContextMenu>
                   <ContextMenuTrigger asChild>{trigger}</ContextMenuTrigger>
                   <ContextMenuContent
                     className="min-w-36"
@@ -312,9 +450,12 @@ export function TabBar({
                       </>
                     )}
                   </ContextMenuContent>
-                </ContextMenu>
+                </ContextMenu></Fragment>
               );
             })}
+            {dropTarget === scrollableTabs.length && (
+              <div className="w-0.5 shrink-0 self-stretch rounded-full bg-primary" />
+            )}
           </TabsList>
         </Tabs>
         <DropdownMenu
@@ -416,6 +557,17 @@ export function TabBar({
       </div>
     </div>
     </div>
+    {draggedTab && ghostPos && createPortal(
+      <div
+        className="pointer-events-none fixed z-[9999] flex h-7 items-center gap-1.5 rounded-md bg-accent/90 px-2 text-xs text-foreground shadow-lg ring-1 ring-border/50 backdrop-blur-sm"
+        style={{ left: ghostPos.x - 40, top: ghostPos.y - 14 }}
+      >
+        <TabIcon tab={draggedTab} />
+        <span className="truncate">{labelFor(draggedTab)}</span>
+      </div>,
+      document.body,
+    )}
+    </>
   );
 }
 

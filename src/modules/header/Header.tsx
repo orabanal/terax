@@ -50,6 +50,8 @@ type Props = {
   onRename: (id: number, title: string) => void;
   /** Clone a terminal tab, replicating its connection and cwd. */
   onClone: (id: number) => void;
+  /** Reorder tabs by moving tabId to position toIndex in the full tabs array. */
+  onMoveTab: (tabId: number, toIndex: number) => void;
   /** Whether the pinned SFTP tab is currently shown. */
   sftpVisible: boolean;
   /** Toggle the pinned SFTP tab on/off. */
@@ -82,6 +84,7 @@ export function Header({
   onPin,
   onRename,
   onClone,
+  onMoveTab,
   sftpVisible,
   onToggleSftp,
   onToggleSidebar,
@@ -221,6 +224,7 @@ export function Header({
           onPin={onPin}
           onRename={onRename}
           onClone={onClone}
+          onMoveTab={onMoveTab}
           sftpVisible={sftpVisible}
           onToggleSftp={onToggleSftp}
           compact={compact}

@@ -975,6 +975,20 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     [],
   );
 
+  /** Reorder tabs by moving `tabId` to position `toIndex` in the full array. */
+  const moveTab = useCallback((tabId: number, toIndex: number) => {
+    setTabs((curr) => {
+      const fromIndex = curr.findIndex((t) => t.id === tabId);
+      if (fromIndex === -1) return curr;
+      if (fromIndex === toIndex) return curr;
+      if (toIndex < 0 || toIndex >= curr.length) return curr;
+      const next = [...curr];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
+  }, []);
+
   const resetWorkspace = useCallback((cwd?: string) => {
     const tabId = nextIdRef.current++;
     const leafId = nextIdRef.current++;
@@ -1030,6 +1044,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     closePaneByLeaf,
     cloneTab,
     extractLeafToTab,
+    moveTab,
     resetWorkspace,
   };
 }

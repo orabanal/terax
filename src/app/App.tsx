@@ -127,6 +127,7 @@ export default function App() {
     closePaneByLeaf,
     extractLeafToTab,
     cloneTab,
+    moveTab,
     resetWorkspace,
   } = useTabs(getLaunchDir() ? { cwd: getLaunchDir() } : undefined);
 
@@ -903,6 +904,7 @@ export default function App() {
               onPin={pinTab}
               onRename={handleRenameTab}
               onClone={handleCloneTab}
+              onMoveTab={moveTab}
               sftpVisible={sftpTabVisible}
               onToggleSftp={toggleSftpTab}
               onToggleSidebar={toggleSidebar}
