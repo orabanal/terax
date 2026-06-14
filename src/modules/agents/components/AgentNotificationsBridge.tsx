@@ -42,6 +42,7 @@ function route(
   session: AgentSession,
   kind: "attention" | "finished",
   ctx: Ctx,
+  context?: string,
 ): void {
   const info = tabInfo(ctx.tabs, session.leafId);
   const heading =
@@ -54,7 +55,7 @@ function route(
     agent: session.agent,
     kind,
     title: heading,
-    body: info?.title,
+    body: context ?? info?.title,
     focused: ctx.focused,
     visible: ctx.activeId === session.tabId,
     allowToast: kind === "attention",
@@ -101,7 +102,7 @@ function handleSignal(sig: AgentSignal, ctx: Ctx): void {
 
 // ─── Transcript-based signals (local, passive, no hooks needed) ──────────────
 
-type TranscriptPayload = { kind: "attention" | "finished"; projectDir: string };
+type TranscriptPayload = { kind: "attention" | "finished"; projectDir: string; context?: string };
 
 // Decode the directory name Claude Code uses in ~/.claude/projects/.
 // Claude Code encodes absolute paths by stripping the leading / and replacing
@@ -144,11 +145,11 @@ function handleTranscriptEvent(payload: TranscriptPayload, ctx: Ctx): void {
       if (!existing) store.start(match.leafId, match.tabId, "claude");
       store.setStatus(match.leafId, "waiting");
       const session = store.sessions[match.leafId];
-      if (session) route(session, "attention", ctx);
+      if (session) route(session, "attention", ctx, payload.context);
     } else {
       if (existing) {
         store.setStatus(match.leafId, "waiting");
-        route(existing, "finished", ctx);
+        route(existing, "finished", ctx, payload.context);
         maybeTriggerManagedReview(match.leafId);
       } else {
         // Claude Code finished but no active OSC session — still show notification.
@@ -157,7 +158,7 @@ function handleTranscriptEvent(payload: TranscriptPayload, ctx: Ctx): void {
           agent: "claude",
           kind: "finished",
           title: "claude finished",
-          body: match.title,
+          body: payload.context ?? match.title,
           focused: ctx.focused,
           visible: ctx.activeId === match.tabId,
           allowToast: false,
@@ -177,6 +178,7 @@ function handleTranscriptEvent(payload: TranscriptPayload, ctx: Ctx): void {
         payload.kind === "attention"
           ? "claude needs your input"
           : "claude finished",
+      body: payload.context,
       focused: ctx.focused,
       visible: false,
       allowToast: payload.kind === "attention",
@@ -204,6 +206,7 @@ function handleSshStateChange(
   newState: string,
   prevState: string,
   ctx: Ctx,
+  context?: string,
 ): void {
   const store = useAgentStore.getState();
 
@@ -215,7 +218,7 @@ function handleSshStateChange(
     if (!store.sessions[leafId]) store.start(leafId, tabId, "claude");
     store.setStatus(leafId, "waiting");
     const session = store.sessions[leafId];
-    if (session) route(session, "attention", ctx);
+    if (session) route(session, "attention", ctx, context);
     return;
   }
   if (newState === "active" && prevState === "permission-wait") {
@@ -303,13 +306,14 @@ export function AgentNotificationsBridge({
     const unsubs: Array<() => void> = [];
 
     for (const { leafId, tabId } of sshLeaves) {
-      const tracker = new PtyClaudeTracker(({ state, previousState }) => {
+      const tracker = new PtyClaudeTracker(({ state, previousState, context }) => {
         handleSshStateChange(
           leafId,
           tabId,
           state,
           previousState,
           ctxRef.current,
+          context,
         );
       });
 

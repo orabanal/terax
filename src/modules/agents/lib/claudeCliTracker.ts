@@ -62,15 +62,18 @@ export type ClaudeCliState = "idle" | "active" | "permission-wait";
 export type ClaudeCliStateChange = {
   state: ClaudeCliState;
   previousState: ClaudeCliState;
+  context?: string;
 };
 
 export class ClaudeCliTracker {
   private _state: ClaudeCliState = "idle";
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private recentText = "";
   private readonly onChange: (e: ClaudeCliStateChange) => void;
 
   static readonly INACTIVITY_MS = 10_000;
   static readonly PERMISSION_MS = 15_000;
+  static readonly TEXT_BUFFER_MAX = 300;
 
   constructor(onChange: (e: ClaudeCliStateChange) => void) {
     this.onChange = onChange;
@@ -80,11 +83,37 @@ export class ClaudeCliTracker {
     return this._state;
   }
 
-  private transition(next: ClaudeCliState): void {
+  private transition(next: ClaudeCliState, context?: string): void {
     if (next === this._state) return;
     const prev = this._state;
     this._state = next;
-    this.onChange({ state: next, previousState: prev });
+    this.onChange({ state: next, previousState: prev, context });
+  }
+
+  private pushText(text: string): void {
+    this.recentText += text;
+    if (this.recentText.length > ClaudeCliTracker.TEXT_BUFFER_MAX) {
+      this.recentText = this.recentText.slice(-ClaudeCliTracker.TEXT_BUFFER_MAX);
+    }
+  }
+
+  private extractPermissionContext(): string | undefined {
+    const text = this.recentText;
+    if (!text) return undefined;
+    const lower = text.toLowerCase();
+    const keywords = ["allow", "approve", "permission", "authorize", "do you want to"];
+    let bestPos = -1;
+    for (const kw of keywords) {
+      const pos = lower.lastIndexOf(kw);
+      if (pos > bestPos) bestPos = pos;
+    }
+    if (bestPos < 0) return undefined;
+    const start = Math.max(0, bestPos - 40);
+    const end = Math.min(text.length, bestPos + 80);
+    let snippet = text.slice(start, end).replace(/\s+/g, " ").trim();
+    if (start > 0) snippet = `...${snippet}`;
+    if (end < text.length) snippet = `${snippet}...`;
+    return snippet || undefined;
   }
 
   private resetTimer(ms: number): void {
@@ -101,8 +130,10 @@ export class ClaudeCliTracker {
       this.resetTimer(ClaudeCliTracker.INACTIVITY_MS);
       return;
     }
+    this.pushText(cleanText);
     if (PERMISSION_KEYWORDS.test(cleanText) && this._state === "active") {
-      this.transition("permission-wait");
+      const context = this.extractPermissionContext();
+      this.transition("permission-wait", context);
       this.resetTimer(ClaudeCliTracker.PERMISSION_MS);
     }
   }
@@ -111,6 +142,7 @@ export class ClaudeCliTracker {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     this._state = "idle";
+    this.recentText = "";
   }
 }
 

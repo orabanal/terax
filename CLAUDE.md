@@ -62,7 +62,7 @@ Each module is self-contained, exports via `index.ts`, and owns its hooks under 
 - **theme/** — custom theme engine. `ThemeProvider` + `applyTheme` write CSS variables. No `next-themes`.
 - **tabs/** — `useTabs` is source of truth for tab list + active id.
 - **settings/** — settings store via `tauri-plugin-store`.
-- **agents/** — agent notifications for the built-in Terax agent and terminal coding agents (Claude Code). Shared store in `store/agentStore.ts`; terminal detection is Rust-side in `pty/agent_detect.rs`.
+- **agents/** — agent notifications for the built-in Terax agent and terminal coding agents (Claude Code). Three passive detection sources: (1) `pty/agent_detect.rs` parses OSC 133/777 for local PTY shell integration, (2) `transcript_watcher.rs` polls `~/.claude/projects/**/*.jsonl` for local sessions and emits `terax:claude-transcript` with kind/context/projectDir, (3) `lib/claudeCliTracker.ts` tracks SSH PTY bytes for visual markers (`⏺`, spinner, permission keywords) with context extraction. All three route through `AgentNotificationsBridge.tsx` which dispatches OS notifications (via `lib/notify.ts`) and in-app toasts (via `AgentToast.tsx`), with descriptive context in the notification body. Shared store in `store/agentStore.ts`.
 
 ### PTY shell integration
 

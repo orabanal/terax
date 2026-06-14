@@ -10,12 +10,14 @@ use tauri::{AppHandle, Emitter};
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 const COMPLETION_DELAY: Duration = Duration::from_secs(5);
 const TRANSCRIPT_EVENT: &str = "terax:claude-transcript";
+const MAX_CONTEXT_LEN: usize = 120;
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscriptEvent {
     pub kind: &'static str,
     pub project_dir: String,
+    pub context: Option<String>,
 }
 
 struct FileState {
@@ -23,6 +25,8 @@ struct FileState {
     running_tool_ids: HashSet<String>,
     pending_completion: Option<Instant>,
     project_dir: String,
+    last_text: String,
+    last_tool_name: String,
 }
 
 fn projects_dir() -> Option<PathBuf> {
@@ -39,8 +43,20 @@ fn has_permission_keywords(text: &str) -> bool {
         || lower.contains("ask-confirmation")
 }
 
-fn process_entries(entries: Vec<Value>, state: &mut FileState) -> Vec<&'static str> {
-    let mut events: Vec<&'static str> = Vec::new();
+fn truncate_at_word(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        return s.to_string();
+    }
+    let trimmed = &s[..max_len];
+    if let Some(pos) = trimmed.rfind(char::is_whitespace) {
+        format!("{}...", &trimmed[..pos])
+    } else {
+        format!("{}...", trimmed)
+    }
+}
+
+fn process_entries(entries: Vec<Value>, state: &mut FileState) -> Vec<(&'static str, Option<String>)> {
+    let mut events: Vec<(&'static str, Option<String>)> = Vec::new();
 
     for entry in entries {
         let entry_type = entry.get("type").and_then(Value::as_str).unwrap_or("");
@@ -54,17 +70,22 @@ fn process_entries(entries: Vec<Value>, state: &mut FileState) -> Vec<&'static s
                     match block.get("type").and_then(Value::as_str) {
                         Some("tool_use") => {
                             if let Some(id) = block.get("id").and_then(Value::as_str) {
-                                if block.get("name").is_some() {
+                                if let Some(name) = block.get("name").and_then(Value::as_str) {
                                     state.running_tool_ids.insert(id.to_string());
+                                    state.last_tool_name = name.to_string();
                                     has_tool_use = true;
                                     state.pending_completion = None;
                                 }
                             }
                         }
-                        Some("text")
-                            if block.get("text").and_then(Value::as_str).is_some() =>
-                        {
-                            has_text = true;
+                        Some("text") => {
+                            if let Some(text) = block.get("text").and_then(Value::as_str) {
+                                let trimmed = text.trim();
+                                if !trimmed.is_empty() {
+                                    state.last_text = truncate_at_word(trimmed, MAX_CONTEXT_LEN);
+                                    has_text = true;
+                                }
+                            }
                         }
                         _ => {}
                     }
@@ -82,7 +103,12 @@ fn process_entries(entries: Vec<Value>, state: &mut FileState) -> Vec<&'static s
             if let Some(s) = content.and_then(Value::as_str) {
                 if has_permission_keywords(s) {
                     state.pending_completion = None;
-                    events.push("attention");
+                    let ctx = if !state.last_text.is_empty() {
+                        Some(state.last_text.clone())
+                    } else {
+                        None
+                    };
+                    events.push(("attention", ctx));
                     continue;
                 }
             }
@@ -101,7 +127,12 @@ fn process_entries(entries: Vec<Value>, state: &mut FileState) -> Vec<&'static s
                                     block.get("content").and_then(Value::as_str).unwrap_or("");
                                 if has_permission_keywords(text) {
                                     state.pending_completion = None;
-                                    events.push("attention");
+                                    let ctx = if !state.last_text.is_empty() {
+                                        Some(state.last_text.clone())
+                                    } else {
+                                        None
+                                    };
+                                    events.push(("attention", ctx));
                                     break 'blocks;
                                 }
                             }
@@ -110,7 +141,12 @@ fn process_entries(entries: Vec<Value>, state: &mut FileState) -> Vec<&'static s
                             if let Some(text) = block.get("text").and_then(Value::as_str) {
                                 if has_permission_keywords(text) {
                                     state.pending_completion = None;
-                                    events.push("attention");
+                                    let ctx = if !state.last_text.is_empty() {
+                                        Some(state.last_text.clone())
+                                    } else {
+                                        None
+                                    };
+                                    events.push(("attention", ctx));
                                     break 'blocks;
                                 }
                             }
@@ -125,7 +161,7 @@ fn process_entries(entries: Vec<Value>, state: &mut FileState) -> Vec<&'static s
     events
 }
 
-fn scan_file(path: &PathBuf, state: &mut FileState) -> Vec<&'static str> {
+fn scan_file(path: &PathBuf, state: &mut FileState) -> Vec<(&'static str, Option<String>)> {
     let Ok(meta) = std::fs::metadata(path) else {
         return vec![];
     };
@@ -195,6 +231,8 @@ fn scan_once(states: &mut HashMap<PathBuf, FileState>, app: &AppHandle) {
                 running_tool_ids: HashSet::new(),
                 pending_completion: None,
                 project_dir: dir_name.clone(),
+                last_text: String::new(),
+                last_tool_name: String::new(),
             });
 
             // Initialize offset to current size on first encounter to avoid replaying history.
@@ -206,10 +244,10 @@ fn scan_once(states: &mut HashMap<PathBuf, FileState>, app: &AppHandle) {
             }
 
             let events = scan_file(&jsonl_path, state);
-            for kind in events {
+            for (kind, context) in events {
                 let _ = app.emit(
                     TRANSCRIPT_EVENT,
-                    TranscriptEvent { kind, project_dir: state.project_dir.clone() },
+                    TranscriptEvent { kind, project_dir: state.project_dir.clone(), context },
                 );
             }
         }
@@ -220,9 +258,16 @@ fn scan_once(states: &mut HashMap<PathBuf, FileState>, app: &AppHandle) {
         if let Some(scheduled) = state.pending_completion {
             if scheduled.elapsed() >= COMPLETION_DELAY && state.running_tool_ids.is_empty() {
                 state.pending_completion = None;
+                let context = if !state.last_tool_name.is_empty() {
+                    Some(format!("Used {}", state.last_tool_name))
+                } else if !state.last_text.is_empty() {
+                    Some(state.last_text.clone())
+                } else {
+                    None
+                };
                 let _ = app.emit(
                     TRANSCRIPT_EVENT,
-                    TranscriptEvent { kind: "finished", project_dir: state.project_dir.clone() },
+                    TranscriptEvent { kind: "finished", project_dir: state.project_dir.clone(), context },
                 );
             }
         }
