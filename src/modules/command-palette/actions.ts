@@ -65,6 +65,7 @@ export type CommandPaletteActionContext = {
   focusExplorerSearch: () => void;
   toggleSidebar: () => void;
   toggleAi: () => void;
+  toggleComposeBar: () => void;
   askAiSelection?: () => void;
   openSettings: () => void;
   openShortcuts: () => void;
@@ -231,6 +232,16 @@ export function createCommandPaletteActions(
       icon: SidebarLeftIcon,
       shortcutId: "sidebar.toggle",
       run: ctx.toggleSidebar,
+    },
+    {
+      id: "terminal.composeBar",
+      label: "Toggle compose bar",
+      group: "View",
+      keywords: ["compose", "input", "command", "terminal", "bar"],
+      icon: TerminalIcon,
+      shortcutId: "terminal.composeBar",
+      disabledReason: !activeTerminalTab ? "No terminal tab" : undefined,
+      run: ctx.toggleComposeBar,
     },
     {
       id: "explorer.search",

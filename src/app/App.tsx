@@ -65,6 +65,7 @@ import {
 } from "@/modules/tabs";
 import {
   clearFocusedTerminal,
+  ComposeBar,
   disposeSession,
   findLeafCwd,
   hasLeaf,
@@ -72,6 +73,7 @@ import {
   respawnSession,
   type TerminalPaneHandle,
   useTerminalFileDrop,
+  writeToSession,
 } from "@/modules/terminal";
 import { parseGitDiff, type ParsedGitDiff } from "@/modules/terminal/lib/gitDiffParser";
 import { ptyIdForLeaf } from "@/modules/terminal/lib/useTerminalSession";
@@ -196,6 +198,11 @@ export default function App() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [newEditorOpen, setNewEditorOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [composeBarOpen, setComposeBarOpen] = useState(false);
+  const toggleComposeBar = useCallback(
+    () => setComposeBarOpen((v) => !v),
+    [],
+  );
   const setLive = useChatStore((s) => s.setLive);
   const respondToApproval = useChatStore((s) => s.respondToApproval);
 
@@ -631,6 +638,7 @@ export default function App() {
       "terminal.clear": () => {
         clearFocusedTerminal();
       },
+      "terminal.composeBar": toggleComposeBar,
       "search.focus": () => searchInlineRef.current?.focus(),
       "ai.toggle": togglePanelAndFocus,
       "shortcuts.open": () => setShortcutsOpen((v) => !v),
@@ -654,6 +662,7 @@ export default function App() {
       selectByIndex,
       splitActivePaneInActiveTab,
       focusNextPaneInTab,
+      toggleComposeBar,
       toggleSourceControl,
       togglePanelAndFocus,
       toggleSidebar,
@@ -688,6 +697,9 @@ export default function App() {
         // Only defer the plain (no-shift) Ctrl/⌘+B binding; the Shift variant
         // is the always-on toggle and is never claimed by the terminal.
         return inTerminal && !e.shiftKey;
+      }
+      if (id === "terminal.composeBar") {
+        return activeTab?.kind !== "terminal";
       }
       return false;
     },
@@ -847,6 +859,7 @@ export default function App() {
             focusExplorerSearch: () => explorerRef.current?.focusSearch(),
             toggleSidebar,
             toggleAi: togglePanelAndFocus,
+            toggleComposeBar,
             openSettings: () => void openSettingsWindow(),
             openShortcuts: () => setShortcutsOpen(true),
           })
@@ -867,6 +880,7 @@ export default function App() {
       focusNextPaneInTab,
       toggleSidebar,
       togglePanelAndFocus,
+      toggleComposeBar,
     ],
   );
 
@@ -1020,6 +1034,18 @@ export default function App() {
             </ResizablePanelGroup>
           </main>
 
+          {!zenMode && composeBarOpen && activeLeafId !== null && (
+            <ComposeBar
+              onSend={(text) => {
+                writeToSession(activeLeafId, `${text}\r`);
+              }}
+              onClose={() => {
+                setComposeBarOpen(false);
+                terminalRefs.current.get(activeLeafId)?.focus();
+              }}
+            />
+          )}
+
           {!zenMode && (
             <StatusBar
               cwd={activeCwd}
@@ -1034,6 +1060,8 @@ export default function App() {
               leafId={activeLeafId}
               isSSH={activeTerminalTab?.sshHost != null}
               onGitClick={isTerminalTab ? handleGitClick : undefined}
+              isComposeBarOpen={composeBarOpen}
+              onToggleComposeBar={toggleComposeBar}
             />
           )}
 

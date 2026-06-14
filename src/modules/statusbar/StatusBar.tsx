@@ -5,7 +5,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { IncognitoIcon } from "@hugeicons/core-free-icons";
+import { Edit02Icon, IncognitoIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { CwdBreadcrumb } from "./CwdBreadcrumb";
 import { WorkspaceEnvSelector } from "./WorkspaceEnvSelector";
@@ -32,6 +32,8 @@ type Props = {
   leafId: number | null;
   isSSH: boolean;
   onGitClick?: (info: GitClickInfo) => void;
+  isComposeBarOpen?: boolean;
+  onToggleComposeBar?: () => void;
 };
 
 export function StatusBar({
@@ -45,6 +47,8 @@ export function StatusBar({
   leafId,
   isSSH,
   onGitClick,
+  isComposeBarOpen,
+  onToggleComposeBar,
 }: Props) {
   const { summary: gitSummary, sshCwd } = useGitSummary(cwd, leafId, isSSH);
 
@@ -81,6 +85,26 @@ export function StatusBar({
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
+        {leafId !== null && onToggleComposeBar && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={onToggleComposeBar}
+                className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${
+                  isComposeBarOpen
+                    ? "bg-primary/15 text-primary"
+                    : "text-muted-foreground/64 hover:bg-muted/24 hover:text-foreground/72"
+                }`}
+              >
+                <HugeiconsIcon icon={Edit02Icon} size={13} strokeWidth={2} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="text-[11px]">
+              {isComposeBarOpen ? "Close compose bar" : "Open compose bar"}
+            </TooltipContent>
+          </Tooltip>
+        )}
         <AgentStatusPill onClick={onOpenMini} />
         <AiOpenButton onOpen={onOpenMini} />
       </div>
