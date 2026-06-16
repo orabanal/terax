@@ -135,6 +135,7 @@ export function TerminalStack({
                 key={lid}
                 leafId={lid}
                 hostName={sshHost.name}
+                onClose={() => closePane(lid)}
               />
             ))}
           </div>

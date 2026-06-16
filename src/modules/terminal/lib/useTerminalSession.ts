@@ -292,8 +292,13 @@ async function openPtyForSession(
         s.pty = null;
         const slot = getSlotForLeaf(leafId);
         if (slot) slot.term.options.disableStdin = true;
-        if (s.callbacks.onExit) s.callbacks.onExit(code);
-        else s.pendingExit = code;
+        const listener = sshStatusListeners.get(leafId);
+        if (code !== 0 && listener) {
+          listener("Disconnected");
+        } else {
+          if (s.callbacks.onExit) s.callbacks.onExit(code);
+          else s.pendingExit = code;
+        }
       },
       onStatus: (msg) => {
         sshStatusListeners.get(leafId)?.(msg);

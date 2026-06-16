@@ -1,38 +1,50 @@
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import {
   focusSlot,
   isSessionConnected,
+  respawnSession,
   sshStatusListeners,
 } from "@/modules/terminal/lib/useTerminalSession";
 
 type Props = {
   leafId: number;
   hostName: string;
+  onClose: () => void;
 };
+
+type Phase = "connecting" | "disconnected" | "hidden";
 
 const DONE_STATES = ["Connected", "Error", "Failed", "Closed"];
 
-export function SshConnectingModal({ leafId, hostName }: Props) {
+export function SshConnectingModal({ leafId, hostName, onClose }: Props) {
+  const [phase, setPhase] = useState<Phase>(() =>
+    isSessionConnected(leafId) ? "hidden" : "connecting",
+  );
   const [status, setStatus] = useState<string>("Connecting...");
-  const [visible, setVisible] = useState(() => !isSessionConnected(leafId));
 
   useEffect(() => {
     if (isSessionConnected(leafId)) {
-      setVisible(false);
+      setPhase("hidden");
       return;
     }
 
     setStatus("Connecting...");
-    setVisible(true);
+    setPhase("connecting");
 
     sshStatusListeners.set(leafId, (msg: string) => {
+      if (msg === "Disconnected") {
+        setPhase("disconnected");
+        return;
+      }
       setStatus(msg);
+      setPhase("connecting");
       if (DONE_STATES.some((s) => msg.startsWith(s))) {
         if (msg.startsWith("Connected")) {
           setTimeout(() => focusSlot(leafId), 50);
         }
-        setTimeout(() => setVisible(false), 400);
+        setTimeout(() => setPhase("hidden"), 400);
       }
     });
 
@@ -41,7 +53,47 @@ export function SshConnectingModal({ leafId, hostName }: Props) {
     };
   }, [leafId]);
 
-  if (!visible) return null;
+  if (phase === "hidden") return null;
+
+  if (phase === "disconnected") {
+    return (
+      <div className="pointer-events-auto absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+        <div className="flex w-72 flex-col gap-3 rounded-lg border border-border bg-background px-5 py-4 shadow-lg">
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-destructive uppercase tracking-wide">
+              Connection lost
+            </span>
+            <span className="truncate text-sm font-semibold text-foreground">
+              {hostName}
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            The SSH connection was closed unexpectedly.
+          </p>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              className="flex-1"
+              onClick={() => {
+                setPhase("connecting");
+                setStatus("Connecting...");
+                void respawnSession(leafId);
+              }}
+            >
+              Reconnect
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onClose}
+            >
+              Close
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
