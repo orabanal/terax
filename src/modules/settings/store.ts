@@ -104,6 +104,8 @@ export type Preferences = {
   webSearchProvider: WebSearchProviderId;
   webSearchMaxResults: number;
   webSearchHost: string;
+  showServerStats: boolean;
+  serverStatsInterval: number;
 };
 
 const STORE_PATH = "terax-settings.json";
@@ -156,6 +158,8 @@ const KEY_WEB_SEARCH_ENABLED = "webSearchEnabled";
 const KEY_WEB_SEARCH_PROVIDER = "webSearchProvider";
 const KEY_WEB_SEARCH_MAX_RESULTS = "webSearchMaxResults";
 const KEY_WEB_SEARCH_HOST = "webSearchHost";
+const KEY_SHOW_SERVER_STATS = "showServerStats";
+const KEY_SERVER_STATS_INTERVAL = "serverStatsInterval";
 
 export const TERMINAL_FONT_SIZE_DEFAULT = 14;
 export const TERMINAL_FONT_SIZE_MIN = 8;
@@ -221,6 +225,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   webSearchProvider: "tavily",
   webSearchMaxResults: 5,
   webSearchHost: "",
+  showServerStats: true,
+  serverStatsInterval: 10,
 };
 
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
@@ -383,6 +389,11 @@ export async function loadPreferences(): Promise<Preferences> {
       DEFAULT_PREFERENCES.webSearchMaxResults,
     webSearchHost:
       get<string>(KEY_WEB_SEARCH_HOST) ?? DEFAULT_PREFERENCES.webSearchHost,
+    showServerStats:
+      get<boolean>(KEY_SHOW_SERVER_STATS) ?? DEFAULT_PREFERENCES.showServerStats,
+    serverStatsInterval: clampStatsInterval(
+      get<number>(KEY_SERVER_STATS_INTERVAL) ?? DEFAULT_PREFERENCES.serverStatsInterval,
+    ),
   };
 }
 
@@ -619,6 +630,19 @@ export async function setWebSearchHost(value: string): Promise<void> {
   await writePref(KEY_WEB_SEARCH_HOST, value.trim());
 }
 
+function clampStatsInterval(v: number): number {
+  if (!Number.isFinite(v)) return 10;
+  return Math.min(300, Math.max(5, Math.round(v)));
+}
+
+export async function setShowServerStats(value: boolean): Promise<void> {
+  await writePref(KEY_SHOW_SERVER_STATS, value);
+}
+
+export async function setServerStatsInterval(value: number): Promise<void> {
+  await writePref(KEY_SERVER_STATS_INTERVAL, clampStatsInterval(value));
+}
+
 export async function setShortcuts(
   value: Record<ShortcutId, KeyBinding[]> | {},
 ): Promise<void> {
@@ -684,6 +708,8 @@ export async function onPreferencesChange(
     [KEY_WEB_SEARCH_PROVIDER]: "webSearchProvider",
     [KEY_WEB_SEARCH_MAX_RESULTS]: "webSearchMaxResults",
     [KEY_WEB_SEARCH_HOST]: "webSearchHost",
+    [KEY_SHOW_SERVER_STATS]: "showServerStats",
+    [KEY_SERVER_STATS_INTERVAL]: "serverStatsInterval",
   };
   // Same-process writes still fire onChange immediately; cross-window writes
   // arrive via the Tauri event emitted by writePref().

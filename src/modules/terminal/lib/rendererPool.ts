@@ -562,6 +562,32 @@ function scheduleUnhide(slot: Slot, stale: boolean): void {
       if (leafId !== null && adapter?.isLeafFocused(leafId)) {
         slot.term.focus();
       }
+
+      // Fallback refit: on app startup the Tauri webview may finish compositing
+      // after the double-rAF above, leaving a wide right margin that only goes
+      // away on resize. A 400ms timeout catches that without relying on the
+      // ResizeObserver (which skips fits when clientWidth hasn't changed).
+      setTimeout(() => {
+        if (slot.currentLeafId === null) return;
+        const c = slot.host.parentElement;
+        if (!c) return;
+        const w = c.clientWidth;
+        const h = c.clientHeight;
+        // Force the fit even if dims look the same — startup layout may have
+        // settled to the correct size but with incorrect column count.
+        try {
+          slot.fitAddon.fit();
+        } catch {}
+        const afterCols = slot.term.cols;
+        const afterRows = slot.term.rows;
+        slot.lastW = w;
+        slot.lastH = h;
+        if (afterCols !== slot.lastCols || afterRows !== slot.lastRows) {
+          slot.lastCols = afterCols;
+          slot.lastRows = afterRows;
+          adapter?.resolveLeaf(slot.currentLeafId)?.resizePty(afterCols, afterRows);
+        }
+      }, 400);
     });
   });
 }

@@ -83,7 +83,7 @@ export function WorkspaceSurface({
     <div className="relative h-full min-h-0">
       <div
         className={cn(
-          "absolute inset-0 px-3 pt-2 pb-2",
+          "absolute inset-0",
           !isTerminalTab && "invisible pointer-events-none",
         )}
         aria-hidden={!isTerminalTab}

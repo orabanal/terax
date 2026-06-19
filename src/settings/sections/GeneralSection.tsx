@@ -37,6 +37,8 @@ import {
   setTerminalWebglEnabled,
   setVimMode,
   setZoomLevel,
+  setShowServerStats,
+  setServerStatsInterval,
 } from "@/modules/settings/store";
 import { useTheme } from "@/modules/theme";
 import {
@@ -96,6 +98,8 @@ export function GeneralSection() {
   const terminalScrollback = usePreferencesStore((s) => s.terminalScrollback);
   const zoomLevel = usePreferencesStore((s) => s.zoomLevel);
   const agentNotifications = usePreferencesStore((s) => s.agentNotifications);
+  const showServerStats = usePreferencesStore((s) => s.showServerStats);
+  const serverStatsInterval = usePreferencesStore((s) => s.serverStatsInterval);
 
   useEffect(() => {
     let alive = true;
@@ -370,6 +374,37 @@ export function GeneralSection() {
             </SelectContent>
           </Select>
         </SettingRow>
+        <SettingRow
+          title="Server stats (SSH)"
+          description="Show CPU, memory, disk and network usage in the top bar of SSH terminal tabs. Linux only."
+        >
+          <Switch
+            checked={showServerStats}
+            onCheckedChange={(v) => void setShowServerStats(v)}
+          />
+        </SettingRow>
+        {showServerStats && (
+          <SettingRow
+            title="Stats refresh interval"
+            description="How often to poll the remote server for updated stats."
+          >
+            <Select
+              value={String(serverStatsInterval)}
+              onValueChange={(v) => void setServerStatsInterval(Number(v))}
+            >
+              <SelectTrigger size="sm" className="h-8 w-28 text-[12px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[5, 10, 15, 30, 60].map((s) => (
+                  <SelectItem key={s} value={String(s)} className="text-[12px]">
+                    {s}s
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </SettingRow>
+        )}
       </div>
 
       <div className="flex flex-col gap-2">

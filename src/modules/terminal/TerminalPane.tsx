@@ -1,9 +1,13 @@
 import { useTheme } from "@/modules/theme";
+import { usePreferencesStore } from "@/modules/settings/preferences";
+import { isSessionConnected } from "@/modules/terminal/lib/useTerminalSession";
 import type { SshHost } from "@/modules/ssh/store";
 import type { SearchAddon } from "@xterm/addon-search";
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { BlockInputBar, type BlockInputBarHandle } from "./block/BlockInputBar";
 import { useTerminalSession } from "./lib/useTerminalSession";
+import { useServerStats } from "./lib/useServerStats";
+import { ServerStatsBar } from "./ServerStatsBar";
 
 export type TerminalPaneHandle = {
   write: (data: string) => void;
@@ -52,6 +56,33 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(
     const downYRef = useRef<number | null>(null);
     useTheme();
 
+    const showServerStats = usePreferencesStore((s) => s.showServerStats);
+    const serverStatsInterval = usePreferencesStore((s) => s.serverStatsInterval);
+
+    // Poll isSessionConnected until SSH is up; flip sshConnected once and keep it.
+    const [sshConnected, setSshConnected] = useState(() =>
+      sshHost ? isSessionConnected(leafId) : false,
+    );
+    useEffect(() => {
+      if (!sshHost || isSessionConnected(leafId)) return;
+      const id = setInterval(() => {
+        if (isSessionConnected(leafId)) {
+          setSshConnected(true);
+          clearInterval(id);
+        }
+      }, 500);
+      return () => clearInterval(id);
+    }, [leafId, sshHost]);
+
+    const statsEnabled = !!sshHost && showServerStats && sshConnected;
+
+    const stats = useServerStats({
+      leafId: statsEnabled ? leafId : null,
+      enabled: statsEnabled,
+      intervalSec: serverStatsInterval,
+      visible,
+    });
+
     const session = useTerminalSession({
       leafId,
       container: containerRef,
@@ -91,7 +122,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(
     if (blocks) {
       return (
         <div
-          className="zoom-exempt flex h-full w-full flex-col"
+          className="zoom-exempt absolute inset-0 flex flex-col"
           style={hideStyle}
         >
           <BlockInputBar
@@ -103,7 +134,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(
           {/* biome-ignore lint/a11y/noStaticElementInteractions: terminal surface; pointer selects command blocks */}
           <div
             ref={containerRef}
-            className="min-h-0 flex-1"
+            className="relative min-h-0 flex-1"
             onMouseDown={(e) => {
               downYRef.current = e.clientY;
             }}
@@ -120,8 +151,19 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(
       );
     }
 
+    // Always use two-layer structure so the DOM is stable regardless of
+    // statsEnabled flips. containerRef.current must stay on the same node or
+    // xterm ends up mounted in a detached element (useTerminalSession dep on
+    // the ref object, not its .current, means the effect won't re-run).
+    const barLabel = sshHost
+      ? (sshHost.name || sshHost.host)
+      : "Local terminal";
+
     return (
-      <div ref={containerRef} className="zoom-exempt h-full w-full" style={hideStyle} />
+      <div className="zoom-exempt absolute inset-0 flex flex-col" style={hideStyle}>
+        <ServerStatsBar stats={statsEnabled ? stats : null} emptyLabel={barLabel} />
+        <div ref={containerRef} className="min-h-0 flex-1" />
+      </div>
     );
   },
 );
