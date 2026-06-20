@@ -83,6 +83,7 @@ export const AiSidebar = memo(function AiSidebar({
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const dragRef = useRef<{ startX: number; startW: number } | null>(null);
   const widthRef = useRef(DEFAULT_WIDTH);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   const handleDragStart = useCallback(
     (e: React.PointerEvent) => {
@@ -97,7 +98,9 @@ export const AiSidebar = memo(function AiSidebar({
     (e: React.PointerEvent) => {
       if (!dragRef.current) return;
       const delta = dragRef.current.startX - e.clientX;
-      const newW = Math.max(MIN_WIDTH, dragRef.current.startW + delta);
+      const parentW = rootRef.current?.parentElement?.offsetWidth ?? Infinity;
+      const maxW = parentW > 0 ? Math.floor(parentW * 0.5) : Infinity;
+      const newW = Math.min(maxW, Math.max(MIN_WIDTH, dragRef.current.startW + delta));
       widthRef.current = newW;
       setWidth(newW);
     },
@@ -112,7 +115,8 @@ export const AiSidebar = memo(function AiSidebar({
 
   return (
     <div
-      className="relative flex h-full shrink-0 flex-col bg-background border-l border-border/40 shadow-[-4px_0_24px_-4px_rgba(0,0,0,0.2)] dark:shadow-[-4px_0_24px_-4px_rgba(0,0,0,0.5)]"
+      ref={rootRef}
+      className="relative flex h-full shrink-0 flex-col bg-card/90 backdrop-blur border-l border-border/40 shadow-[-4px_0_24px_-4px_rgba(0,0,0,0.2)] dark:shadow-[-4px_0_24px_-4px_rgba(0,0,0,0.5)]"
       style={{ width }}
     >
       {/* Drag handle */}
