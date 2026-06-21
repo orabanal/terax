@@ -10,6 +10,7 @@ import {
   createShellIntegrationState,
   registerCwdHandler,
   registerPromptTracker,
+  registerOsc52ClipboardHandler,
 } from "./osc-handlers";
 import { openPty, openSshPty, type PtySession } from "./pty-bridge";
 import { BlockDecorations } from "../block/lib/blockDecorations";
@@ -70,6 +71,7 @@ type Session = {
   snapshot: string | null;
   searchQuery: string | null;
   dormantRing: DormantRing;
+  pendingInput: string;
   hasSlot: boolean;
   blocks: boolean;
   blockMode: BlockMode;
@@ -148,8 +150,12 @@ export { focusSlot, copyFromLeaf, pasteIntoLeaf, pasteClipboardToLeaf, pasteSele
 
 export function writeToSession(leafId: number, data: string): boolean {
   const s = sessions.get(leafId);
-  if (!s?.pty) return false;
-  void s.pty.write(data);
+  if (!s || s.shellExited) return false;
+  if (s.pty) {
+    void s.pty.write(data);
+    return true;
+  }
+  s.pendingInput += data;
   return true;
 }
 
@@ -248,6 +254,7 @@ function ensureSession(
     snapshot: null,
     searchQuery: null,
     dormantRing: new DormantRing(),
+    pendingInput: "",
     hasSlot: false,
     blocks,
     blockMode: "prompt",
@@ -290,6 +297,7 @@ async function openPtyForSession(
       onExit: (code) => {
         s.shellExited = true;
         s.pty = null;
+        s.pendingInput = "";
         const slot = getSlotForLeaf(leafId);
         if (slot) slot.term.options.disableStdin = true;
         const listener = sshStatusListeners.get(leafId);
@@ -314,6 +322,7 @@ async function openPtyForSession(
       onExit: (code) => {
         s.shellExited = true;
         s.pty = null;
+        s.pendingInput = "";
         const slot = getSlotForLeaf(leafId);
         if (slot) slot.term.options.disableStdin = true;
         if (s.callbacks.onExit) s.callbacks.onExit(code);
@@ -364,11 +373,13 @@ function bindLeafToSlot(leafId: number, s: Session): void {
           onMode: (mode) => applyBlockMode(leafId, mode),
         });
         s.blockDecorations = deco;
+        const disposeClipboard = registerOsc52ClipboardHandler(term);
         return [
           () => {
             s.blockDecorations = null;
             deco.dispose();
           },
+          disposeClipboard,
         ];
       }
       // Shared in-command flag — see osc-handlers.ts. The prompt tracker
@@ -387,7 +398,8 @@ function bindLeafToSlot(leafId: number, s: Session): void {
         },
         shellState,
       );
-      return [prompt.dispose, cwd];
+      const disposeClipboard = registerOsc52ClipboardHandler(term);
+      return [prompt.dispose, cwd, disposeClipboard];
     },
     onSearchReady: (addon) => s.callbacks.onSearchReady?.(addon),
   });
@@ -436,6 +448,10 @@ function attachSession(
           return;
         }
         s.pty = pty;
+        if (s.pendingInput) {
+          void pty.write(s.pendingInput);
+          s.pendingInput = "";
+        }
         if (s.cols > 0 && s.rows > 0) pty.resize(s.cols, s.rows);
       })
       .catch((e) => {
@@ -489,6 +505,10 @@ export async function respawnSession(
     return;
   }
   s.pty = pty;
+  if (s.pendingInput) {
+    void pty.write(s.pendingInput);
+    s.pendingInput = "";
+  }
   if (s.cols > 0 && s.rows > 0) pty.resize(s.cols, s.rows);
 }
 
@@ -513,6 +533,7 @@ export function disposeSession(leafId: number): void {
   s.snapshot = null;
   s.pty?.close();
   s.pty = null;
+  s.pendingInput = "";
   sessions.delete(leafId);
   readyLeaves.delete(leafId);
   const waiters = readyWaiters.get(leafId);

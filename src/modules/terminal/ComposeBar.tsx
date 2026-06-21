@@ -53,7 +53,7 @@ export function ComposeBar({ onSend, onClose }: Props) {
   );
 
   return (
-    <div className="flex shrink-0 items-center gap-2 border-t border-border/20 bg-background px-3 py-2">
+    <div className="flex shrink-0 items-center gap-2 border-t border-border/40 bg-card px-3 py-2 shadow-[0_-4px_12px_rgba(0,0,0,0.12)]">
       <textarea
         ref={taRef}
         rows={1}

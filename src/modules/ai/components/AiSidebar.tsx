@@ -116,7 +116,7 @@ export const AiSidebar = memo(function AiSidebar({
   return (
     <div
       ref={rootRef}
-      className="relative flex h-full shrink-0 flex-col bg-card/90 backdrop-blur border-l border-border/40 shadow-[-4px_0_24px_-4px_rgba(0,0,0,0.2)] dark:shadow-[-4px_0_24px_-4px_rgba(0,0,0,0.5)]"
+      className="relative flex h-full shrink-0 flex-col bg-card border-l border-border/60 shadow-[-8px_0_32px_-4px_rgba(0,0,0,0.18)] dark:shadow-[-8px_0_32px_-4px_rgba(0,0,0,0.55)]"
       style={{ width }}
     >
       {/* Drag handle */}

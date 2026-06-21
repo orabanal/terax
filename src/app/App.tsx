@@ -987,7 +987,7 @@ export default function App() {
               <ResizablePanel id="workspace" defaultSize="78%" minSize="30%">
                 <div className="flex h-full min-h-0">
                   <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                  <div className="relative min-h-0 flex-1">
+                  <div className="relative min-h-0 flex-1 overflow-hidden">
                     <WorkspaceSurface
                       tabs={tabs}
                       activeId={activeId}
@@ -1020,6 +1020,17 @@ export default function App() {
                       }}
                     />
                   </div>
+                  {!zenMode && composeBarOpen && activeLeafId !== null && (
+                    <ComposeBar
+                      onSend={(text) => {
+                        writeToSession(activeLeafId, `${text}\r`);
+                      }}
+                      onClose={() => {
+                        setComposeBarOpen(false);
+                        terminalRefs.current.get(activeLeafId)?.focus();
+                      }}
+                    />
+                  )}
                 </div>
                   <AiSidebar
                     open={aiSidebarOpen}
@@ -1033,18 +1044,6 @@ export default function App() {
               </ResizablePanel>
             </ResizablePanelGroup>
           </main>
-
-          {!zenMode && composeBarOpen && activeLeafId !== null && (
-            <ComposeBar
-              onSend={(text) => {
-                writeToSession(activeLeafId, `${text}\r`);
-              }}
-              onClose={() => {
-                setComposeBarOpen(false);
-                terminalRefs.current.get(activeLeafId)?.focus();
-              }}
-            />
-          )}
 
           {!zenMode && (
             <StatusBar

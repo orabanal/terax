@@ -1,5 +1,38 @@
 import type { IMarker, Terminal } from "@xterm/xterm";
 
+const MAX_OSC52_BYTES = 1024 * 1024;
+
+export function registerOsc52ClipboardHandler(term: Terminal): () => void {
+  const d = term.parser.registerOscHandler(52, (data) => {
+    const text = parseOsc52(data);
+    if (text === null) return true;
+    queueMicrotask(() => {
+      navigator.clipboard.writeText(text).catch(() => {});
+    });
+    return true;
+  });
+  return () => d.dispose();
+}
+
+function parseOsc52(data: string): string | null {
+  const semi = data.indexOf(";");
+  if (semi === -1) return null;
+  const selection = data.slice(0, semi) || "c";
+  if (!selection.includes("c")) return null;
+  const encoded = data.slice(semi + 1);
+  if (!encoded || encoded === "?") return null;
+  if (encoded.length > Math.ceil((MAX_OSC52_BYTES * 4) / 3) + 4) return null;
+  const compact = encoded.replace(/\s/g, "");
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(compact)) return null;
+  try {
+    const bytes = Uint8Array.from(atob(compact), (c) => c.charCodeAt(0));
+    if (bytes.byteLength > MAX_OSC52_BYTES) return null;
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Cross-handler state shared between the OSC 7 cwd handler and the OSC 133
  * prompt-marker handler. Tracks whether we are currently inside a running
