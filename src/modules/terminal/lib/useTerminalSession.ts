@@ -280,6 +280,9 @@ function deliverPtyBytes(leafId: number, bytes: Uint8Array): void {
   if (slot) slot.term.write(bytes);
   else s.dormantRing.push(bytes);
   ptyDataSubscribers.get(leafId)?.forEach((cb) => cb(bytes));
+  if (s.sshHost) {
+    window.dispatchEvent(new CustomEvent("terax:ssh-activity", { detail: { leafId } }));
+  }
 }
 
 async function openPtyForSession(

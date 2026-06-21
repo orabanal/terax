@@ -18,6 +18,7 @@ export type GitSummaryState = {
 
 const POLL_MS = 15_000;
 const SSH_TIMEOUT_MS = 7_000;
+const SSH_ACTIVITY_DEBOUNCE_MS = 800;
 
 type SshExecResult = {
   stdout: string;
@@ -130,11 +131,32 @@ export function useGitSummary(
     liveRef.current = true;
     void fetch();
     const id = setInterval(() => void fetch(), POLL_MS);
+
+    if (isSSH && leafId !== null) {
+      let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+      const onSshActivity = (e: Event) => {
+        const detail = (e as CustomEvent<{ leafId: number }>).detail;
+        if (detail.leafId !== leafId) return;
+        if (debounceTimer !== null) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          debounceTimer = null;
+          void fetch();
+        }, SSH_ACTIVITY_DEBOUNCE_MS);
+      };
+      window.addEventListener("terax:ssh-activity", onSshActivity);
+      return () => {
+        liveRef.current = false;
+        clearInterval(id);
+        if (debounceTimer !== null) clearTimeout(debounceTimer);
+        window.removeEventListener("terax:ssh-activity", onSshActivity);
+      };
+    }
+
     return () => {
       liveRef.current = false;
       clearInterval(id);
     };
-  }, [fetch]);
+  }, [fetch, isSSH, leafId]);
 
   return { summary, sshCwd };
 }
