@@ -69,6 +69,7 @@ import {
   type CheckState,
   type SourceControlFileEntry,
 } from "./useSourceControlPanel";
+import type { SshGitContext } from "./lib/sshGit";
 
 type Props = {
   open: boolean;
@@ -82,6 +83,7 @@ type Props = {
     title?: string;
   }) => void;
   onOpenFile?: (absolutePath: string) => void;
+  sshGitCtx?: SshGitContext;
 };
 
 const SOURCE_CONTROL_TOOLTIP_CLASS =
@@ -149,8 +151,9 @@ export const SourceControlPanel = memo(function SourceControlPanel({
   onOpenGitGraph,
   onOpenDiff,
   onOpenFile,
+  sshGitCtx,
 }: Props) {
-  const scm = useSourceControlPanel(open, sourceControl, onOpenDiff);
+  const scm = useSourceControlPanel(open, sourceControl, onOpenDiff, sshGitCtx);
   const refreshAnimationRef = useRef<number | null>(null);
   const [refreshAnimating, setRefreshAnimating] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);

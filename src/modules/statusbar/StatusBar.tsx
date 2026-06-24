@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { AgentStatusPill } from "@/modules/ai/components/AgentStatusPill";
 import { AiOpenButton } from "@/modules/ai/components/AiStatusBarControls";
 import {
@@ -34,6 +35,7 @@ type Props = {
   onGitClick?: (info: GitClickInfo) => void;
   isComposeBarOpen?: boolean;
   onToggleComposeBar?: () => void;
+  onSshCwdChange?: (sshCwd: string | null) => void;
 };
 
 export function StatusBar({
@@ -49,8 +51,15 @@ export function StatusBar({
   onGitClick,
   isComposeBarOpen,
   onToggleComposeBar,
+  onSshCwdChange,
 }: Props) {
   const { summary: gitSummary, sshCwd } = useGitSummary(cwd, leafId, isSSH);
+
+  const onSshCwdChangeRef = useRef(onSshCwdChange);
+  onSshCwdChangeRef.current = onSshCwdChange;
+  useEffect(() => {
+    onSshCwdChangeRef.current?.(sshCwd);
+  }, [sshCwd]);
 
   return (
     <footer className="flex h-8 shrink-0 items-center justify-between gap-3 border-t border-border/60 bg-card/60 px-3 text-[11px]">

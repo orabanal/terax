@@ -3,6 +3,7 @@ import { native } from "@/modules/ai/lib/native";
 import type { SidebarViewId } from "@/modules/sidebar";
 import type { Tab } from "@/modules/tabs";
 import { useSourceControl } from "./useSourceControl";
+import type { SshGitContext } from "./lib/sshGit";
 
 function dirname(path: string | null): string | null {
   if (!path) return null;
@@ -26,6 +27,7 @@ type Params = {
     repoRoot: string;
     branch: string | null;
   }) => void;
+  sshGitCtx?: SshGitContext;
 };
 
 /**
@@ -44,6 +46,7 @@ export function useSourceControlContext({
   sidebarView,
   cycleSidebarView,
   openCommitHistoryTab,
+  sshGitCtx,
 }: Params) {
   const workspaceFallbackPath = launchCwdResolved
     ? (launchCwd ?? home ?? null)
@@ -76,7 +79,9 @@ export function useSourceControlContext({
   const sourceControlPath = sourceControlActive
     ? sourceControlContextPath
     : badgeContextPath;
-  const sourceControl = useSourceControl(sourceControlPath, true);
+  // For SSH terminals, pass the SSH context so git operations run remotely.
+  // The contextPath is still used for badge tracking in the non-SSH path.
+  const sourceControl = useSourceControl(sourceControlPath, true, sshGitCtx);
 
   const toggleSourceControl = useCallback(() => {
     cycleSidebarView("source-control");
@@ -107,5 +112,5 @@ export function useSourceControlContext({
     sourceControlContextPath,
   ]);
 
-  return { sourceControl, toggleSourceControl, openGitGraphFromContext };
+  return { sourceControl, toggleSourceControl, openGitGraphFromContext, sshGitCtx };
 }

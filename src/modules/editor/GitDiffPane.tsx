@@ -34,8 +34,17 @@ type CommitSource = {
   originalPath: string | null;
 };
 
+// Pre-loaded content from a remote SSH diff — skips local git calls.
+type SshSource = {
+  kind: "ssh";
+  path: string;
+  originalContent: string;
+  modifiedContent: string;
+  fallbackPatch: string;
+};
+
 type Props = {
-  source: WorkingSource | CommitSource;
+  source: WorkingSource | CommitSource | SshSource;
   chipLabel?: string;
   active: boolean;
 };
@@ -129,11 +138,31 @@ export function GitDiffPane({ source, chipLabel, active }: Props) {
   const cmRef = useRef<ReactCodeMirrorRef>(null);
   const editorThemeId = usePreferencesStore((s) => s.editorTheme);
   const themeExt = EDITOR_THEME_EXT[editorThemeId] ?? EDITOR_THEME_EXT.atomone;
-  const [state, setState] = useState<LoadState>(() =>
-    active ? loadStateFromCache(source) : { kind: "idle" },
-  );
+  const [state, setState] = useState<LoadState>(() => {
+    if (source.kind === "ssh") {
+      return {
+        kind: "loaded",
+        originalContent: source.originalContent,
+        modifiedContent: source.modifiedContent,
+        isBinary: false,
+        fallbackPatch: source.fallbackPatch,
+      };
+    }
+    return active ? loadStateFromCache(source) : { kind: "idle" };
+  });
 
   useEffect(() => {
+    // SSH diffs carry content inline — no fetch needed.
+    if (source.kind === "ssh") {
+      setState({
+        kind: "loaded",
+        originalContent: source.originalContent,
+        modifiedContent: source.modifiedContent,
+        isBinary: false,
+        fallbackPatch: source.fallbackPatch,
+      });
+      return;
+    }
     if (!active) return;
     const cached = loadStateFromCache(source);
     if (cached.kind === "loaded") {
@@ -183,7 +212,7 @@ export function GitDiffPane({ source, chipLabel, active }: Props) {
   }, [active, source]);
 
   const path = source.path;
-  const repoRoot = source.repoRoot;
+  const repoRoot = source.kind === "ssh" ? "" : source.repoRoot;
   const mode = source.kind === "working" ? source.mode : "+";
   const loaded = state.kind === "loaded" ? state : null;
   const originalContent = loaded?.originalContent ?? "";

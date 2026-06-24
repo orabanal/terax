@@ -495,7 +495,24 @@ export default function App() {
     activeTab?.kind === "editor" || activeTab?.kind === "markdown"
       ? activeTab.path
       : null;
-  const { sourceControl, toggleSourceControl, openGitGraphFromContext } =
+
+  // SSH CWD detected by useGitSummary inside StatusBar (via /proc on the remote).
+  // Updated via onSshCwdChange prop; reset when the active leaf changes.
+  const [activeSshCwd, setActiveSshCwd] = useState<string | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: activeLeafId is the trigger, setActiveSshCwd is stable
+  useEffect(() => {
+    setActiveSshCwd(null);
+  }, [activeLeafId]);
+
+  const isActiveSSH = activeTerminalTab?.sshHost != null;
+  const activeSshId =
+    isActiveSSH && activeLeafId !== null ? ptyIdForLeaf(activeLeafId) : null;
+  const activeTerminalSshGitCtx =
+    isActiveSSH && activeSshId !== null && activeSshCwd !== null && activeLeafId !== null
+      ? { sshId: activeSshId, cwd: activeSshCwd, leafId: activeLeafId }
+      : undefined;
+
+  const { sourceControl, toggleSourceControl, openGitGraphFromContext, sshGitCtx: scmSshCtx } =
     useSourceControlContext({
       activeTab,
       tabs,
@@ -507,6 +524,7 @@ export default function App() {
       sidebarView,
       cycleSidebarView,
       openCommitHistoryTab,
+      sshGitCtx: activeTerminalSshGitCtx,
     });
 
   const openPreviewTab = useCallback(
@@ -595,6 +613,59 @@ export default function App() {
       setGitDiffLoading(false);
     }
   }, []);
+
+  // Opens the editor-style diff tab for a single file over SSH.
+  const handleSshFileDiff = useCallback(
+    async (input: {
+      path: string;
+      repoRoot: string;
+      mode: "+" | "-";
+      originalPath: string | null;
+      title?: string;
+    }) => {
+      const ctx = activeTerminalSshGitCtx;
+      if (!ctx) return;
+      try {
+        const { sshGitDiffContent } = await import("@/modules/source-control/lib/sshGit");
+        const content = await sshGitDiffContent(
+          ctx,
+          input.repoRoot,
+          input.path,
+          input.mode === "+",
+          input.originalPath,
+        );
+        openGitDiffTab({
+          path: input.path,
+          repoRoot: input.repoRoot,
+          mode: input.mode,
+          originalPath: input.originalPath,
+          title: input.title,
+          sshDiffContent: content,
+        });
+      } catch {
+        // Fallback: show whole-repo diff in the bottom panel if per-file fetch fails
+        setGitDiffLoading(true);
+        setGitDiffOpen(true);
+        setGitDiffBranch(input.title ?? input.path);
+        gitDiffSourceRef.current = {
+          repoRoot: input.repoRoot,
+          sshCwd: ctx.cwd,
+          leafId: activeLeafId,
+          isSSH: true,
+        };
+        try {
+          const { sshGitDiff } = await import("@/modules/source-control/lib/sshGit");
+          const result = await sshGitDiff(ctx, input.repoRoot, input.path, input.mode === "+");
+          setGitDiffData(parseGitDiff(result.diffText));
+        } catch {
+          setGitDiffData(null);
+        } finally {
+          setGitDiffLoading(false);
+        }
+      }
+    },
+    [activeLeafId, activeTerminalSshGitCtx, openGitDiffTab],
+  );
 
   const handleGitClick = useCallback((info: GitClickInfo) => {
     if (gitDiffOpen) {
@@ -970,9 +1041,10 @@ export default function App() {
                       <SourceControlPanel
                         open
                         sourceControl={sourceControl}
-                        onOpenDiff={openGitDiffTab}
+                        onOpenDiff={scmSshCtx ? handleSshFileDiff : openGitDiffTab}
                         onOpenGitGraph={openGitGraphFromContext}
                         onOpenFile={handleOpenFile}
+                        sshGitCtx={scmSshCtx}
                       />
                     )}
                   </div>
@@ -1061,6 +1133,7 @@ export default function App() {
               onGitClick={isTerminalTab ? handleGitClick : undefined}
               isComposeBarOpen={composeBarOpen}
               onToggleComposeBar={toggleComposeBar}
+              onSshCwdChange={setActiveSshCwd}
             />
           )}
 

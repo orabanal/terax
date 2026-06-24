@@ -5,6 +5,14 @@ import {
   type GitRepoInfo,
   type GitStatusSnapshot,
 } from "@/modules/ai/lib/native";
+import {
+  type SshGitContext,
+  sshGitCommit,
+  sshGitDiff,
+  sshGitDiscard,
+  sshGitStage,
+  sshGitUnstage,
+} from "./lib/sshGit";
 import { useChatStore } from "@/modules/ai/store/chatStore";
 import { providerNeedsKey, resolveModel } from "@/modules/ai/config";
 import {
@@ -365,6 +373,7 @@ export function useSourceControlPanel(
         title?: string;
       }) => void)
     | null,
+  sshGitCtx?: SshGitContext,
 ): SourceControlPanelState {
   const selectedModelId = useChatStore((state) => state.selectedModelId);
   const agentStatus = useChatStore((state) => state.agentMeta.status);
@@ -658,6 +667,9 @@ export function useSourceControlPanel(
     [openSelection, repo, selected, status],
   );
 
+  const sshGitCtxRef = useRef(sshGitCtx);
+  sshGitCtxRef.current = sshGitCtx;
+
   const runMutation = useCallback(
     async (
       busyKey: string,
@@ -692,10 +704,13 @@ export function useSourceControlPanel(
     async (entry: SourceControlEntry) => {
       if (!repo) return;
       const paths = new Set([entry.path]);
+      const ssh = sshGitCtxRef.current;
       await runMutation(
         `stage:${entry.path}`,
         (s) => optimisticStage(s, paths),
-        () => native.gitStage(repo.repoRoot, [entry.path]),
+        ssh
+          ? () => sshGitStage(ssh, repo.repoRoot, [entry.path])
+          : () => native.gitStage(repo.repoRoot, [entry.path]),
         [entry.path],
       );
     },
@@ -706,10 +721,13 @@ export function useSourceControlPanel(
     async (entry: SourceControlEntry) => {
       if (!repo) return;
       const paths = new Set([entry.path]);
+      const ssh = sshGitCtxRef.current;
       await runMutation(
         `unstage:${entry.path}`,
         (s) => optimisticUnstage(s, paths),
-        () => native.gitUnstage(repo.repoRoot, [entry.path]),
+        ssh
+          ? () => sshGitUnstage(ssh, repo.repoRoot, [entry.path])
+          : () => native.gitUnstage(repo.repoRoot, [entry.path]),
         [entry.path],
       );
     },
@@ -745,12 +763,15 @@ export function useSourceControlPanel(
       untracked: entry.untracked,
     }));
     const paths = new Set(list.map((entry) => entry.path));
+    const ssh = sshGitCtxRef.current;
     await runMutation(
       pendingDiscard.scope === "single"
         ? `discard:${list[0].path}`
         : "discard:all",
       (s) => optimisticDiscard(s, paths),
-      () => native.gitDiscard(repo.repoRoot, entries),
+      ssh
+        ? () => sshGitDiscard(ssh, repo.repoRoot, entries)
+        : () => native.gitDiscard(repo.repoRoot, entries),
       [...paths],
     );
   }, [pendingDiscard, repo, runMutation]);
@@ -758,10 +779,13 @@ export function useSourceControlPanel(
   const stageAllEntries = useCallback(async () => {
     if (!repo || unstagedEntries.length === 0) return;
     const paths = new Set(unstagedEntries.map((entry) => entry.path));
+    const ssh = sshGitCtxRef.current;
     await runMutation(
       "stage:all",
       (s) => optimisticStage(s, paths),
-      () => native.gitStage(repo.repoRoot, [...paths]),
+      ssh
+        ? () => sshGitStage(ssh, repo.repoRoot, [...paths])
+        : () => native.gitStage(repo.repoRoot, [...paths]),
       [...paths],
     );
   }, [repo, runMutation, unstagedEntries]);
@@ -769,10 +793,13 @@ export function useSourceControlPanel(
   const unstageAllEntries = useCallback(async () => {
     if (!repo || stagedEntries.length === 0) return;
     const paths = new Set(stagedEntries.map((entry) => entry.path));
+    const ssh = sshGitCtxRef.current;
     await runMutation(
       "unstage:all",
       (s) => optimisticUnstage(s, paths),
-      () => native.gitUnstage(repo.repoRoot, [...paths]),
+      ssh
+        ? () => sshGitUnstage(ssh, repo.repoRoot, [...paths])
+        : () => native.gitUnstage(repo.repoRoot, [...paths]),
       [...paths],
     );
   }, [repo, runMutation, stagedEntries]);
@@ -802,18 +829,23 @@ export function useSourceControlPanel(
     async (entry: SourceControlFileEntry) => {
       if (!repo) return;
       const paths = new Set([entry.path]);
+      const ssh = sshGitCtxRef.current;
       if (entry.checkState === "checked") {
         await runMutation(
           `unstage:${entry.path}`,
           (s) => optimisticUnstage(s, paths),
-          () => native.gitUnstage(repo.repoRoot, [entry.path]),
+          ssh
+            ? () => sshGitUnstage(ssh, repo.repoRoot, [entry.path])
+            : () => native.gitUnstage(repo.repoRoot, [entry.path]),
           [entry.path],
         );
       } else {
         await runMutation(
           `stage:${entry.path}`,
           (s) => optimisticStage(s, paths),
-          () => native.gitStage(repo.repoRoot, [entry.path]),
+          ssh
+            ? () => sshGitStage(ssh, repo.repoRoot, [entry.path])
+            : () => native.gitStage(repo.repoRoot, [entry.path]),
           [entry.path],
         );
       }
@@ -861,11 +893,14 @@ export function useSourceControlPanel(
     setActionMessage(null);
     setActionError(null);
     try {
+      const ssh = sshGitCtxRef.current;
       const [{ buildConfiguredLanguageModel }, { generateText }, diff] =
         await Promise.all([
           import("@/modules/ai/lib/agent"),
           import("ai"),
-          native.gitDiff(repo.repoRoot, null, true),
+          ssh
+            ? sshGitDiff(ssh, repo.repoRoot, null, true)
+            : native.gitDiff(repo.repoRoot, null, true),
         ]);
       const { text: diffText, truncated } = truncateDiff(diff.diffText);
       const chatState = useChatStore.getState();
@@ -934,8 +969,11 @@ export function useSourceControlPanel(
     setLocalActionBusy("commit");
     setActionMessage(null);
     setActionError(null);
+    const ssh = sshGitCtxRef.current;
     try {
-      const result = await native.gitCommit(repo.repoRoot, commitMessage);
+      const result = ssh
+        ? await sshGitCommit(ssh, repo.repoRoot, commitMessage)
+        : await native.gitCommit(repo.repoRoot, commitMessage);
       setCommitMessage("");
       setActionMessage(
         `Committed ${result.commitSha.slice(0, 7)} ${result.summary}`,

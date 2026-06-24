@@ -3,6 +3,14 @@ import {
   type GitRepoInfo,
   type GitStatusSnapshot,
 } from "@/modules/ai/lib/native";
+import {
+  type SshGitContext,
+  sshGitFetch,
+  sshGitPanelSnapshot,
+  sshGitPullFfOnly,
+  sshGitPush,
+  sshGitStatus,
+} from "./lib/sshGit";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -146,6 +154,7 @@ function touchAutoFetch(map: Map<string, number>, key: string): void {
 export function useSourceControl(
   contextPath: string | null,
   enabled: boolean = true,
+  sshGitCtx?: SshGitContext,
 ): SourceControlSummary {
   const [state, setState] = useState<SourceControlSummaryState>({
     repo: null,
@@ -200,10 +209,81 @@ export function useSourceControl(
     [],
   );
 
+  const sshGitCtxRef = useRef(sshGitCtx);
+  sshGitCtxRef.current = sshGitCtx;
+
   const doRefresh = useCallback(
     async (remoteMode: SourceControlRefreshMode): Promise<void> => {
       if (!enabledRef.current) return;
       const requestId = ++requestIdRef.current;
+
+      const ssh = sshGitCtxRef.current;
+
+      // SSH path: run git commands on the remote server.
+      if (ssh) {
+        setState((current) => ({ ...current, isLoading: true, localError: null }));
+        try {
+          const snapshot = await sshGitPanelSnapshot(ssh);
+          if (requestId !== requestIdRef.current) return;
+          if (!snapshot.repo || !snapshot.status) {
+            setState((current) => ({
+              ...current,
+              repo: null,
+              status: null,
+              hasRepo: false,
+              isLoading: false,
+              localError: null,
+            }));
+            return;
+          }
+          let { repo, status } = snapshot;
+
+          let nextRemoteError = stateRef.current.lastRemoteError;
+          const shouldAutoFetch =
+            repo.upstream &&
+            remoteMode !== "never" &&
+            (remoteMode === "always" ||
+              Date.now() -
+                (autoFetchByRepoRef.current.get(repo.repoRoot) ?? 0) >=
+                AUTO_FETCH_THROTTLE_MS);
+
+          if (shouldAutoFetch) {
+            try {
+              await sshGitFetch(ssh, repo.repoRoot);
+              touchAutoFetch(autoFetchByRepoRef.current, repo.repoRoot);
+              nextRemoteError = null;
+              if (requestId !== requestIdRef.current) return;
+              status = await sshGitStatus(ssh, repo.repoRoot);
+              if (requestId !== requestIdRef.current) return;
+            } catch (error) {
+              nextRemoteError = normalizeError(error);
+            }
+          }
+
+          setState((current) => ({
+            ...current,
+            repo,
+            status,
+            hasRepo: true,
+            isLoading: false,
+            localError: null,
+            lastRemoteError: nextRemoteError,
+          }));
+        } catch (error) {
+          if (requestId !== requestIdRef.current) return;
+          setState((current) => ({
+            ...current,
+            repo: null,
+            hasRepo: false,
+            status: null,
+            isLoading: false,
+            localError: normalizeError(error),
+          }));
+        } finally {
+          lastRefreshAtRef.current = Date.now();
+        }
+        return;
+      }
 
       if (!contextPath) {
         setState({
@@ -382,16 +462,25 @@ export function useSourceControl(
 
       setState((current) => ({ ...current, busyAction: action }));
 
+      const ssh = sshGitCtxRef.current;
       try {
         if (action === "fetch") {
-          await native.gitFetch(repo.repoRoot);
+          if (ssh) await sshGitFetch(ssh, repo.repoRoot);
+          else await native.gitFetch(repo.repoRoot);
           touchAutoFetch(autoFetchByRepoRef.current, repo.repoRoot);
         } else if (action === "pull") {
-          await native.gitFetch(repo.repoRoot);
-          touchAutoFetch(autoFetchByRepoRef.current, repo.repoRoot);
-          await native.gitPullFfOnly(repo.repoRoot);
+          if (ssh) {
+            await sshGitFetch(ssh, repo.repoRoot);
+            touchAutoFetch(autoFetchByRepoRef.current, repo.repoRoot);
+            await sshGitPullFfOnly(ssh, repo.repoRoot);
+          } else {
+            await native.gitFetch(repo.repoRoot);
+            touchAutoFetch(autoFetchByRepoRef.current, repo.repoRoot);
+            await native.gitPullFfOnly(repo.repoRoot);
+          }
         } else {
-          await native.gitPush(repo.repoRoot);
+          if (ssh) await sshGitPush(ssh, repo.repoRoot);
+          else await native.gitPush(repo.repoRoot);
         }
         setState((current) => ({ ...current, lastRemoteError: null }));
         await refresh({ remote: "never" });
@@ -440,6 +529,27 @@ export function useSourceControl(
       } else {
         window.clearTimeout(idle as number);
       }
+    };
+  }, [refresh, enabled]);
+
+  // For SSH terminals, refresh after shell output settles (same event used by useGitSummary).
+  useEffect(() => {
+    if (!enabled || !sshGitCtxRef.current) return;
+    const { leafId } = sshGitCtxRef.current;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const onActivity = (e: Event) => {
+      const detail = (e as CustomEvent<{ leafId: number }>).detail;
+      if (detail.leafId !== leafId) return;
+      if (timer !== null) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        void refresh({ remote: "never" });
+      }, 1000);
+    };
+    window.addEventListener("terax:ssh-activity", onActivity);
+    return () => {
+      window.removeEventListener("terax:ssh-activity", onActivity);
+      if (timer !== null) clearTimeout(timer);
     };
   }, [refresh, enabled]);
 

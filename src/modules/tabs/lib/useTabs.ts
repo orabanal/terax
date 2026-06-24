@@ -90,6 +90,12 @@ export type GitDiffTab = {
   repoRoot: string;
   mode: "-" | "+";
   originalPath: string | null;
+  // Pre-loaded content for SSH diffs (avoids local git calls).
+  sshDiffContent?: {
+    originalContent: string;
+    modifiedContent: string;
+    fallbackPatch: string;
+  };
 };
 
 export type GitHistoryTab = {
@@ -525,6 +531,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
       mode: "-" | "+";
       originalPath?: string | null;
       title?: string;
+      sshDiffContent?: GitDiffTab["sshDiffContent"];
     }) => {
       const curr = tabsRef.current;
       const existing = curr.find(
@@ -541,7 +548,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
       if (existing) {
         const nextTabs = curr.map((t) =>
           t.id === existing.id
-            ? { ...t, title: computedTitle, originalPath }
+            ? { ...t, title: computedTitle, originalPath, sshDiffContent: input.sshDiffContent }
             : t,
         );
         tabsRef.current = nextTabs;
@@ -561,6 +568,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
           repoRoot: input.repoRoot,
           mode: input.mode,
           originalPath,
+          sshDiffContent: input.sshDiffContent,
         } satisfies GitDiffTab,
       ];
       tabsRef.current = nextTabs;

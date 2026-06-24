@@ -18,19 +18,24 @@ export function GitDiffStack({ tabs, activeId }: Props) {
   );
   if (!active) return null;
   if (active.kind === "git-diff") {
+    const source = active.sshDiffContent
+      ? {
+          kind: "ssh" as const,
+          path: active.path,
+          originalContent: active.sshDiffContent.originalContent,
+          modifiedContent: active.sshDiffContent.modifiedContent,
+          fallbackPatch: active.sshDiffContent.fallbackPatch,
+        }
+      : {
+          kind: "working" as const,
+          repoRoot: active.repoRoot,
+          path: active.path,
+          mode: active.mode,
+          originalPath: active.originalPath,
+        };
     return (
       <div className="h-full w-full">
-        <GitDiffPane
-          key={active.id}
-          active
-          source={{
-            kind: "working",
-            repoRoot: active.repoRoot,
-            path: active.path,
-            mode: active.mode,
-            originalPath: active.originalPath,
-          }}
-        />
+        <GitDiffPane key={active.id} active source={source} />
       </div>
     );
   }
