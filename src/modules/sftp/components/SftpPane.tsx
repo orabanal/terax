@@ -99,6 +99,7 @@ type Props = {
   hosts?: SshHost[];
   onHostSelect?: (host: SshHost) => void;
   onLocal?: () => void;
+  onDuplicate?: (pane: import("../lib/types").SftpPaneRef, entries: SftpEntry[]) => void;
 } & DirMutations;
 
 type SortHeaderProps = {
@@ -175,6 +176,7 @@ export function SftpPane({
   hosts,
   onHostSelect,
   onLocal,
+  onDuplicate,
   mkdir,
   createFile,
   rename,
@@ -745,6 +747,15 @@ export function SftpPane({
                 }}
               >
                 Rename
+              </ContextMenuItem>
+              <ContextMenuItem
+                disabled={selectedEntries.filter((e) => e.name !== "..").length === 0}
+                onClick={() => {
+                  const toDup = selectedEntries.filter((e) => e.name !== "..");
+                  if (toDup.length > 0) onDuplicate?.(makePaneRef(), toDup);
+                }}
+              >
+                Duplicate
               </ContextMenuItem>
               <ContextMenuItem
                 disabled={selectedEntries.length !== 1 || selectedEntries[0]?.mode == null}

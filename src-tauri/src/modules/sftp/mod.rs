@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
-use russh::Disconnect;
+use russh::{ChannelMsg, Disconnect};
 use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::{FileAttributes, OpenFlags};
 use serde::Serialize;
@@ -46,7 +46,8 @@ impl Default for SftpState {
 
 struct SftpSessionHandle {
     sftp: Arc<SftpSession>,
-    _handle: russh::client::Handle<ssh::ClientHandler>,
+    /// Kept alive so the SSH connection isn't dropped; also used for exec channels.
+    handle: Arc<tokio::sync::Mutex<russh::client::Handle<ssh::ClientHandler>>>,
 }
 
 #[derive(Serialize)]
@@ -96,7 +97,7 @@ pub async fn sftp_open(
 
     let session_handle = SftpSessionHandle {
         sftp: Arc::new(sftp),
-        _handle: handle,
+        handle: Arc::new(tokio::sync::Mutex::new(handle)),
     };
 
     state.sessions.write().unwrap().insert(id, session_handle);
@@ -165,7 +166,9 @@ pub async fn sftp_close(
 
     let _ = handle.sftp.close().await;
     let _ = handle
-        ._handle
+        .handle
+        .lock()
+        .await
         .disconnect(Disconnect::ByApplication, "", "English")
         .await;
 
@@ -779,4 +782,63 @@ pub async fn sftp_download_recursive(
     }
     state.unregister_transfer(&transfer_id);
     result
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SftpExecResult {
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: Option<u32>,
+}
+
+/// Execute a command on the remote server via the SFTP session's underlying SSH connection.
+/// Used for server-side operations like file duplication (`cp -rp`).
+#[tauri::command]
+pub async fn sftp_exec(
+    state: tauri::State<'_, SftpState>,
+    id: u32,
+    command: String,
+) -> Result<SftpExecResult, String> {
+    let handle = {
+        let sessions = state.sessions.read().unwrap();
+        let s = sessions
+            .get(&id)
+            .ok_or_else(|| format!("no sftp session {id}"))?;
+        s.handle.clone()
+    };
+
+    let mut channel = {
+        let h = handle.lock().await;
+        h.channel_open_session()
+            .await
+            .map_err(|e| format!("Failed to open exec channel: {e}"))?
+    };
+
+    channel
+        .exec(true, command.as_bytes())
+        .await
+        .map_err(|e| format!("exec request failed: {e}"))?;
+
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let mut exit_code: Option<u32> = None;
+
+    while let Some(msg) = channel.wait().await {
+        match msg {
+            ChannelMsg::Data { data } => stdout.extend_from_slice(&data),
+            ChannelMsg::ExtendedData { data, .. } => stderr.extend_from_slice(&data),
+            ChannelMsg::ExitStatus { exit_status } => {
+                exit_code = Some(exit_status);
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    Ok(SftpExecResult {
+        stdout: String::from_utf8_lossy(&stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&stderr).into_owned(),
+        exit_code,
+    })
 }

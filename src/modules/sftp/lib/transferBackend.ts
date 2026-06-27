@@ -143,3 +143,27 @@ export function sftpDownloadRecursive(args: {
 export function sftpCancel(transferId: string): Promise<void> {
   return invoke("sftp_cancel", { transferId });
 }
+
+type SftpExecResult = {
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+};
+
+/** Server-side file/dir copy via sftp_exec + `cp -rp`. Used for remote duplicate. */
+export async function sftpCopyRemote(args: {
+  sessionId: number;
+  srcPath: string;
+  dstPath: string;
+}): Promise<void> {
+  const esc = (p: string) => p.replace(/'/g, "'\\''");
+  const cmd = `test -e '${esc(args.dstPath)}' && printf 'destination exists\\n' && exit 1; cp -rp '${esc(args.srcPath)}' '${esc(args.dstPath)}'`;
+  const result = await invoke<SftpExecResult>("sftp_exec", {
+    id: args.sessionId,
+    command: cmd,
+  });
+  const failed = result.exitCode !== null && result.exitCode !== 0;
+  if (failed || (result.exitCode === null && (result.stdout.trim() || result.stderr.trim()))) {
+    throw result.stdout.trim() || result.stderr.trim() || "server-side copy failed";
+  }
+}

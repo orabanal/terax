@@ -45,7 +45,10 @@ export function SftpTransferItem({ transfer, onCancel, onRetry }: Props) {
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex items-center justify-between gap-2">
           <span className="truncate">{transfer.fileName}</span>
-          <span className="shrink-0 tabular-nums text-muted-foreground">
+          <span
+            className="shrink-0 tabular-nums text-muted-foreground"
+            title={transfer.status === "failed" ? transfer.errorMessage : undefined}
+          >
             {active
               ? `${formatSize(transfer.transferredBytes)} / ${formatSize(transfer.totalBytes)}`
               : STATUS_LABEL[transfer.status]}

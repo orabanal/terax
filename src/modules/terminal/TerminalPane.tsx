@@ -59,17 +59,15 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(
     const showServerStats = usePreferencesStore((s) => s.showServerStats);
     const serverStatsInterval = usePreferencesStore((s) => s.serverStatsInterval);
 
-    // Poll isSessionConnected until SSH is up; flip sshConnected once and keep it.
+    // Poll isSessionConnected continuously so sshConnected tracks the real
+    // connection state through disconnects and reconnects.
     const [sshConnected, setSshConnected] = useState(() =>
       sshHost ? isSessionConnected(leafId) : false,
     );
     useEffect(() => {
-      if (!sshHost || isSessionConnected(leafId)) return;
+      if (!sshHost) return;
       const id = setInterval(() => {
-        if (isSessionConnected(leafId)) {
-          setSshConnected(true);
-          clearInterval(id);
-        }
+        setSshConnected(isSessionConnected(leafId));
       }, 500);
       return () => clearInterval(id);
     }, [leafId, sshHost]);

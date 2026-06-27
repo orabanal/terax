@@ -22,6 +22,7 @@ type Props = {
   /** Bumped by SftpView after any transfer completes, to refresh this pane. */
   refreshTick?: number;
   enqueueRemoteEditUpload: TransferQueue["enqueueRemoteEditUpload"];
+  enqueueDuplicate: TransferQueue["enqueueDuplicate"];
 };
 
 export function SftpConnection({
@@ -39,6 +40,7 @@ export function SftpConnection({
   onOpenFile,
   refreshTick,
   enqueueRemoteEditUpload,
+  enqueueDuplicate,
 }: Props) {
   const local = useLocalDir(home);
   const remote = useRemoteDir();
@@ -106,6 +108,7 @@ export function SftpConnection({
       sessionId={mode === "remote" ? remote.sessionId : null}
       editRemoteFile={editRemoteFile}
       openRemoteFile={openRemoteFile}
+      onDuplicate={enqueueDuplicate}
     />
   );
 }

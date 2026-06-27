@@ -6,6 +6,7 @@ import {
   fsCopyRecursive,
   newTransferId,
   sftpCancel,
+  sftpCopyRemote,
   sftpDownload,
   sftpDownloadRecursive,
   sftpUpload,
@@ -51,6 +52,7 @@ export type TransferQueue = {
     entries: SftpEntry[],
     dest: SftpPaneRef,
   ) => void;
+  enqueueDuplicate: (pane: SftpPaneRef, entries: SftpEntry[]) => void;
   cancel: (id: string) => void;
   retry: (id: string) => void;
   enqueueRemoteEditUpload: (args: {
@@ -175,6 +177,9 @@ export function useTransferQueue(): TransferQueue {
         for (const cb of completeCbs.current) cb(rec.dest);
       } catch (e) {
         const msg = typeof e === "string" ? e : String(e);
+        if (msg !== "cancelled") {
+          console.error("[sftp] transfer failed:", msg, rec.srcPath, "->", rec.dstPath);
+        }
         const policy = applyToAllRef.current;
         if (isDestinationConflict(msg) && policy) {
           resolveRecord(rec, policy);
@@ -297,6 +302,42 @@ export function useTransferQueue(): TransferQueue {
     [sync, pump],
   );
 
+  const enqueueDuplicate = useCallback(
+    (pane: SftpPaneRef, entries: SftpEntry[]) => {
+      applyToAllRef.current = null;
+      for (const entry of entries) {
+        if (entry.name === ".." || entry.name === "") continue;
+        const id = newTransferId();
+        const srcPath = joinPath(pane.path, entry.name);
+        const dstPath = renamedPath(srcPath, 1);
+        const dstName = dstPath.split(/[\\/]/).pop() ?? entry.name;
+        const rec: TransferRecord = {
+          id,
+          fileName: dstName,
+          direction: pane.mode === "remote" ? "upload" : "download",
+          status: "pending",
+          totalBytes: entry.size,
+          transferredBytes: 0,
+          speed: 0,
+          kind: entry.kind === "dir" ? "dir" : "file",
+          source: pane,
+          dest: pane,
+          srcPath,
+          dstPath,
+          baseDstPath: dstPath,
+          overwrite: false,
+          renameAttempt: 0,
+          lastBytes: 0,
+          lastTime: 0,
+        };
+        recordsRef.current.set(id, rec);
+      }
+      sync();
+      pump();
+    },
+    [sync, pump],
+  );
+
   const cancel = useCallback(
     (id: string) => {
       const rec = recordsRef.current.get(id);
@@ -382,6 +423,7 @@ export function useTransferQueue(): TransferQueue {
           }
         : null,
       enqueue,
+      enqueueDuplicate,
       cancel,
       retry,
       enqueueRemoteEditUpload,
@@ -393,6 +435,7 @@ export function useTransferQueue(): TransferQueue {
       transfers,
       currentConflict,
       enqueue,
+      enqueueDuplicate,
       cancel,
       retry,
       enqueueRemoteEditUpload,
@@ -469,6 +512,10 @@ function dispatch(
           overwrite,
           onProgress,
         });
+  }
+
+  if (source.mode === "remote" && dest.mode === "remote" && source.sessionId != null) {
+    return sftpCopyRemote({ sessionId: source.sessionId, srcPath, dstPath });
   }
 
   return Promise.reject("unsupported transfer route");

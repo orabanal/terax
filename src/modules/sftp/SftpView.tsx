@@ -165,6 +165,7 @@ export function SftpView({
                     onOpenFile={onOpenFile}
                     refreshTick={refreshTick}
                     enqueueRemoteEditUpload={queue.enqueueRemoteEditUpload}
+                    enqueueDuplicate={queue.enqueueDuplicate}
                   />
                 ))}
               </div>
@@ -198,6 +199,7 @@ export function SftpView({
                     onOpenFile={onOpenFile}
                     refreshTick={refreshTick}
                     enqueueRemoteEditUpload={queue.enqueueRemoteEditUpload}
+                    enqueueDuplicate={queue.enqueueDuplicate}
                   />
                 ))}
               </div>

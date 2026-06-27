@@ -264,6 +264,7 @@ pub fn run() {
             sftp::sftp_upload_recursive,
             sftp::sftp_download_recursive,
             sftp::sftp_cancel,
+            sftp::sftp_exec,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
