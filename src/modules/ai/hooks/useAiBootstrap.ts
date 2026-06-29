@@ -32,11 +32,11 @@ export function useAiBootstrap(): {
     if (activeSessionId) firePendingReviewForSession(activeSessionId);
   }, [activeSessionId]);
 
-  const lmstudioModelId = usePreferencesStore((s) => s.lmstudioModelId);
+  const lmstudioModelIds = usePreferencesStore((s) => s.lmstudioModelIds);
   const lmstudioBaseURL = usePreferencesStore((s) => s.lmstudioBaseURL);
-  const mlxModelId = usePreferencesStore((s) => s.mlxModelId);
+  const mlxModelIds = usePreferencesStore((s) => s.mlxModelIds);
   const mlxBaseURL = usePreferencesStore((s) => s.mlxBaseURL);
-  const ollamaModelId = usePreferencesStore((s) => s.ollamaModelId);
+  const ollamaModelIds = usePreferencesStore((s) => s.ollamaModelIds);
   const ollamaBaseURL = usePreferencesStore((s) => s.ollamaBaseURL);
   const openaiCompatibleModelId = usePreferencesStore(
     (s) => s.openaiCompatibleModelId,
@@ -46,13 +46,13 @@ export function useAiBootstrap(): {
   );
   const customEndpoints = usePreferencesStore((s) => s.customEndpoints);
   const hasLocalModel =
-    (lmstudioBaseURL.trim().length > 0 && lmstudioModelId.trim().length > 0) ||
-    (mlxBaseURL.trim().length > 0 && mlxModelId.trim().length > 0) ||
-    (ollamaBaseURL.trim().length > 0 && ollamaModelId.trim().length > 0) ||
+    (lmstudioBaseURL.trim().length > 0 && lmstudioModelIds.length > 0) ||
+    (mlxBaseURL.trim().length > 0 && mlxModelIds.length > 0) ||
+    (ollamaBaseURL.trim().length > 0 && ollamaModelIds.length > 0) ||
     (openaiCompatibleBaseURL.trim().length > 0 &&
       openaiCompatibleModelId.trim().length > 0) ||
     customEndpoints.some(
-      (e) => e.baseURL.trim().length > 0 && e.modelId.trim().length > 0,
+      (e) => e.baseURL.trim().length > 0 && e.modelIds.length > 0,
     );
   const hasComposer = hasAnyKey(apiKeys) || hasLocalModel;
 

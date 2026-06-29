@@ -28,11 +28,16 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     return scopeKey(session.scope);
   };
 
-  /** Extract leafId from scope key like "terminal:42". Returns null for non-terminal scopes. */
+  /**
+   * Extract leafId from scope keys like "terminal:42" or "terminal:42:ssh:<hostId>".
+   * Returns null for non-terminal scopes.
+   */
   const getScopeLeafId = (): number | null => {
     const sk = getSessionScopeKey();
     if (!sk?.startsWith("terminal:")) return null;
-    const id = Number(sk.slice("terminal:".length));
+    // Take the first colon-delimited segment after "terminal:" so both
+    // "terminal:42" and "terminal:42:ssh:<hostId>" parse correctly.
+    const id = Number(sk.slice("terminal:".length).split(":")[0]);
     return Number.isFinite(id) ? id : null;
   };
 
@@ -134,19 +139,19 @@ function makeChat(sessionId: string): Chat<UIMessage> {
       return sk ? state.getReasoningEffortForScope(sk) : state.reasoningEffort;
     },
     getLmstudioBaseURL: () => usePreferencesStore.getState().lmstudioBaseURL,
-    getLmstudioModelId: () => usePreferencesStore.getState().lmstudioModelId,
+    getLmstudioModelIds: () => usePreferencesStore.getState().lmstudioModelIds,
     getMlxBaseURL: () => usePreferencesStore.getState().mlxBaseURL,
-    getMlxModelId: () => usePreferencesStore.getState().mlxModelId,
+    getMlxModelIds: () => usePreferencesStore.getState().mlxModelIds,
     getOllamaBaseURL: () => usePreferencesStore.getState().ollamaBaseURL,
-    getOllamaModelId: () => usePreferencesStore.getState().ollamaModelId,
+    getOllamaModelIds: () => usePreferencesStore.getState().ollamaModelIds,
     getOpenaiCompatibleBaseURL: () =>
       usePreferencesStore.getState().openaiCompatibleBaseURL,
     getOpenaiCompatibleModelId: () =>
       usePreferencesStore.getState().openaiCompatibleModelId,
     getOpenaiCompatibleContextLimit: () =>
       usePreferencesStore.getState().openaiCompatibleContextLimit,
-    getOpenrouterModelId: () =>
-      usePreferencesStore.getState().openrouterModelId,
+    getOpenrouterModelIds: () =>
+      usePreferencesStore.getState().openrouterModelIds,
     getCustomEndpoints: () => usePreferencesStore.getState().customEndpoints,
     getCustomEndpointKeys: () => useChatStore.getState().customEndpointKeys,
     onStep: (step) => {

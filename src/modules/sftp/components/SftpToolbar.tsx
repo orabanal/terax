@@ -19,11 +19,15 @@ import {
   EyeIcon,
   FileAddIcon,
   FolderAddIcon,
+  GridViewIcon,
   Home09Icon,
+  ListTreeIcon,
+  Menu01Icon,
   Refresh01Icon,
   ViewOffSlashIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import type { SftpViewMode } from "../lib/types";
 
 export type SftpBookmark = { path: string };
 
@@ -48,6 +52,8 @@ type Props = {
   canGoForward?: boolean;
   showHidden?: boolean;
   onToggleHidden?: () => void;
+  viewMode?: SftpViewMode;
+  onViewModeChange?: (mode: SftpViewMode) => void;
 };
 
 type Segment = { label: string; path: string };
@@ -110,6 +116,8 @@ export function SftpToolbar({
   canGoForward,
   showHidden = false,
   onToggleHidden,
+  viewMode,
+  onViewModeChange,
 }: Props) {
   const segments = toSegments(path);
 
@@ -174,6 +182,34 @@ export function SftpToolbar({
           placeholder="Filter"
           className="ml-1 h-6 flex-1 text-xs"
         />
+        {onViewModeChange && (
+          <>
+            <span className="mx-1 h-4 w-px shrink-0 bg-border" />
+            {(
+              [
+                { mode: "list" as const, icon: Menu01Icon, title: "List view" },
+                { mode: "icons" as const, icon: GridViewIcon, title: "Icon view" },
+                { mode: "tree" as const, icon: ListTreeIcon, title: "Tree view" },
+              ] as const
+            ).map(({ mode, icon, title }) => (
+              <Button
+                key={mode}
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "size-6 shrink-0 hover:text-foreground",
+                  viewMode === mode ? "text-foreground" : "text-muted-foreground",
+                )}
+                title={title}
+                aria-label={title}
+                aria-pressed={viewMode === mode}
+                onClick={() => onViewModeChange(mode)}
+              >
+                <HugeiconsIcon icon={icon} size={13} strokeWidth={2} />
+              </Button>
+            ))}
+          </>
+        )}
       </div>
       <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto text-xs text-muted-foreground [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {segments.map((seg, i) => (

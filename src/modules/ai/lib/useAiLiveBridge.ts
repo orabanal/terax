@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useManagedAgentsStore } from "@/modules/agents/store/managedAgentsStore";
 import {
   findLeafCwd,
+  hasLeaf,
   ptyIdForLeaf,
   type TerminalPaneHandle,
   whenSessionReady,
@@ -80,7 +81,7 @@ export function useAiLiveBridge(params: Params) {
     const findTerminalTabForLeaf = (leafId: number): Tab | undefined => {
       const { tabs } = ref.current;
       return tabs.find(
-        (t) => t.kind === "terminal" && t.activeLeafId === leafId,
+        (t) => t.kind === "terminal" && hasLeaf(t.paneTree, leafId),
       );
     };
 

@@ -124,24 +124,80 @@ export type CustomEndpoint = {
   id: string;
   name: string;
   baseURL: string;
-  modelId: string;
+  modelIds: string[];
   contextLimit: number;
 };
 
 const COMPAT_MODEL_PREFIX = "compat-";
+/** Length of the 8-char hex id produced by `crypto.randomUUID().slice(0, 8)`. */
+const ENDPOINT_ID_LEN = 8;
 
-export function compatModelIdForEndpoint(endpointId: string): string {
-  return `${COMPAT_MODEL_PREFIX}${endpointId}`;
+/**
+ * Build a compat model id for a specific model within a custom endpoint.
+ * Format: `compat-{endpointId}-{index}`
+ *
+ * The old single-model format `compat-{endpointId}` is still recognised by
+ * `isCompatModelId` but resolved as index 0 for migration safety. */
+export function compatModelIdForEndpoint(
+  endpointId: string,
+  modelIndex = 0,
+): string {
+  return `${COMPAT_MODEL_PREFIX}${endpointId}-${modelIndex}`;
 }
 
 export function isCompatModelId(modelId: string): boolean {
   return modelId.startsWith(COMPAT_MODEL_PREFIX);
 }
 
+/** Extract endpoint id and model index from a compat model id.
+ *  Returns `null` when the id is not compat or cannot be parsed. */
+export function parseCompatModelId(
+  modelId: string,
+): { endpointId: string; modelIndex: number } | null {
+  if (!isCompatModelId(modelId)) return null;
+  const rest = modelId.slice(COMPAT_MODEL_PREFIX.length);
+  // New indexed format: compat-{8charHexId}-{index}
+  const dashPos = ENDPOINT_ID_LEN;
+  if (rest.length > ENDPOINT_ID_LEN && rest[dashPos] === "-") {
+    const endpointId = rest.slice(0, dashPos);
+    const modelIndex = Number(rest.slice(dashPos + 1));
+    if (Number.isInteger(modelIndex) && modelIndex >= 0) {
+      return { endpointId, modelIndex };
+    }
+  }
+  // Legacy non-indexed format: compat-{endpointId} -> index 0
+  if (rest.length === ENDPOINT_ID_LEN) {
+    return { endpointId: rest, modelIndex: 0 };
+  }
+  return null;
+}
+
+/** @deprecated Use `parseCompatModelId` for new code. */
 export function endpointIdFromCompatModel(modelId: string): string {
-  return isCompatModelId(modelId)
-    ? modelId.slice(COMPAT_MODEL_PREFIX.length)
-    : "";
+  return parseCompatModelId(modelId)?.endpointId ?? "";
+}
+
+const LOCAL_MODEL_SUFFIX = "-local-";
+
+/** Build an indexed model id for a local provider.
+ *  Format: `{provider}-local-{index}` (e.g. `lmstudio-local-0`). */
+export function indexedLocalModelId(
+  provider: string,
+  modelIndex: number,
+): string {
+  return `${provider}${LOCAL_MODEL_SUFFIX}${modelIndex}`;
+}
+
+/** Parse an indexed local model id. Returns `null` when the id does not match. */
+export function parseIndexedLocalModelId(
+  modelId: string,
+): { provider: ProviderId; modelIndex: number } | null {
+  const idx = modelId.indexOf(LOCAL_MODEL_SUFFIX);
+  if (idx <= 0) return null;
+  const provider = modelId.slice(0, idx) as ProviderId;
+  const modelIndex = Number(modelId.slice(idx + LOCAL_MODEL_SUFFIX.length));
+  if (!Number.isInteger(modelIndex) || modelIndex < 0) return null;
+  return { provider, modelIndex };
 }
 
 /** One-shot migration of the legacy single OpenAI-compatible config into the
@@ -154,7 +210,9 @@ export function migrateLegacyCompatEndpoint(
   id: string,
 ): CustomEndpoint[] {
   if (!baseURL.trim() || !modelId.trim()) return [];
-  return [{ id, name: "Custom endpoint", baseURL, modelId, contextLimit }];
+  return [
+    { id, name: "Custom endpoint", baseURL, modelIds: [modelId], contextLimit },
+  ];
 }
 
 export function getProvider(id: ProviderId): ProviderInfo {
@@ -530,15 +588,20 @@ export function getCompatModelInfo(
   modelId: string,
   endpoints: readonly CustomEndpoint[],
 ): ModelInfo {
-  const eid = endpointIdFromCompatModel(modelId);
+  const parsed = parseCompatModelId(modelId);
+  const eid = parsed?.endpointId ?? "";
   const ep = endpoints.find((e) => e.id === eid);
   const name = ep?.name || "Custom endpoint";
+  const resolvedModel =
+    ep?.modelIds?.[parsed?.modelIndex ?? 0] || ep?.modelIds?.[0] || name;
   return {
     id: modelId,
     provider: "openai-compatible",
-    label: ep?.modelId || name,
+    label: resolvedModel,
     hint: name,
-    description: ep ? `${name} — ${ep.baseURL}` : "Custom OpenAI-compatible endpoint",
+    description: ep
+      ? `${name} — ${ep.baseURL}`
+      : "Custom OpenAI-compatible endpoint",
     capabilities: { intelligence: 3, speed: 3, cost: 3 },
   };
 }
@@ -546,8 +609,23 @@ export function getCompatModelInfo(
 export function resolveModel(
   modelId: string,
   endpoints: readonly CustomEndpoint[] = [],
+  localModelIds?: Partial<Record<string, string[]>>,
 ): ModelInfo {
   if (isCompatModelId(modelId)) return getCompatModelInfo(modelId, endpoints);
+  // Indexed local provider models: lmstudio-local-0, ollama-local-1, etc.
+  const indexed = parseIndexedLocalModelId(modelId);
+  if (indexed) {
+    const ids = localModelIds?.[indexed.provider];
+    const actualModelId = ids?.[indexed.modelIndex] ?? "";
+    return {
+      id: modelId,
+      provider: indexed.provider,
+      label: actualModelId || `${indexed.provider} model ${indexed.modelIndex}`,
+      hint: "Local",
+      description: `Local model on ${indexed.provider}`,
+      capabilities: { intelligence: 3, speed: 3, cost: 5 },
+    };
+  }
   const m = MODELS.find((x) => x.id === modelId);
   if (!m) throw new Error(`Unknown model: ${modelId}`);
   return m;

@@ -139,15 +139,15 @@ export const EditorPane = forwardRef<EditorPaneHandle, Props>(
             const p = s.autocompleteProvider;
             const modelId =
               p === "lmstudio"
-                ? s.lmstudioModelId
+                ? s.lmstudioModelIds[0] ?? ""
                 : p === "mlx"
-                  ? s.mlxModelId
+                  ? s.mlxModelIds[0] ?? ""
                   : p === "ollama"
-                    ? s.ollamaModelId
+                    ? s.ollamaModelIds[0] ?? ""
                     : p === "openai-compatible"
                       ? s.openaiCompatibleModelId
                       : p === "openrouter"
-                        ? s.openrouterModelId
+                        ? s.openrouterModelIds[0] ?? ""
                         : s.autocompleteModelId;
             return {
               enabled: s.autocompleteEnabled,

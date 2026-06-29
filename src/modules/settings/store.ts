@@ -69,16 +69,16 @@ export type Preferences = {
   autocompleteProvider: AutocompleteProviderId;
   autocompleteModelId: string;
   lmstudioBaseURL: string;
-  lmstudioModelId: string;
+  lmstudioModelIds: string[];
   mlxBaseURL: string;
-  mlxModelId: string;
+  mlxModelIds: string[];
   ollamaBaseURL: string;
-  ollamaModelId: string;
+  ollamaModelIds: string[];
   openaiCompatibleBaseURL: string;
   openaiCompatibleModelId: string;
   openaiCompatibleContextLimit: number;
   customEndpoints: CustomEndpoint[];
-  openrouterModelId: string;
+  openrouterModelIds: string[];
   favoriteModelIds: string[];
   recentModelIds: string[];
   vimMode: boolean;
@@ -124,16 +124,20 @@ const KEY_AUTOCOMPLETE_ENABLED = "autocompleteEnabled";
 const KEY_AUTOCOMPLETE_PROVIDER = "autocompleteProvider";
 const KEY_AUTOCOMPLETE_MODEL = "autocompleteModelId";
 const KEY_LMSTUDIO_BASE_URL = "lmstudioBaseURL";
-const KEY_LMSTUDIO_MODEL_ID = "lmstudioModelId";
+const KEY_LMSTUDIO_MODEL_IDS = "lmstudioModelIds";
+const KEY_LMSTUDIO_MODEL_ID_LEGACY = "lmstudioModelId";
 const KEY_MLX_BASE_URL = "mlxBaseURL";
-const KEY_MLX_MODEL_ID = "mlxModelId";
+const KEY_MLX_MODEL_IDS = "mlxModelIds";
+const KEY_MLX_MODEL_ID_LEGACY = "mlxModelId";
 const KEY_OLLAMA_BASE_URL = "ollamaBaseURL";
-const KEY_OLLAMA_MODEL_ID = "ollamaModelId";
+const KEY_OLLAMA_MODEL_IDS = "ollamaModelIds";
+const KEY_OLLAMA_MODEL_ID_LEGACY = "ollamaModelId";
 const KEY_OPENAI_COMPAT_BASE_URL = "openaiCompatibleBaseURL";
 const KEY_OPENAI_COMPAT_MODEL_ID = "openaiCompatibleModelId";
 const KEY_OPENAI_COMPAT_CONTEXT_LIMIT = "openaiCompatibleContextLimit";
 const KEY_CUSTOM_ENDPOINTS = "customEndpoints";
-const KEY_OPENROUTER_MODEL_ID = "openrouterModelId";
+const KEY_OPENROUTER_MODEL_IDS = "openrouterModelIds";
+const KEY_OPENROUTER_MODEL_ID_LEGACY = "openrouterModelId";
 const KEY_FAVORITE_MODELS = "favoriteModelIds";
 const KEY_RECENT_MODELS = "recentModelIds";
 const KEY_VIM_MODE = "vimMode";
@@ -192,16 +196,16 @@ export const DEFAULT_PREFERENCES: Preferences = {
   autocompleteProvider: "cerebras",
   autocompleteModelId: DEFAULT_AUTOCOMPLETE_MODEL.cerebras ?? "",
   lmstudioBaseURL: LMSTUDIO_DEFAULT_BASE_URL,
-  lmstudioModelId: "",
+  lmstudioModelIds: [],
   mlxBaseURL: MLX_DEFAULT_BASE_URL,
-  mlxModelId: "",
+  mlxModelIds: [],
   ollamaBaseURL: OLLAMA_DEFAULT_BASE_URL,
-  ollamaModelId: "",
+  ollamaModelIds: [],
   openaiCompatibleBaseURL: OPENAI_COMPATIBLE_DEFAULT_BASE_URL,
   openaiCompatibleModelId: "",
   openaiCompatibleContextLimit: 128_000,
   customEndpoints: [],
-  openrouterModelId: "",
+  openrouterModelIds: [],
   favoriteModelIds: [],
   recentModelIds: [],
   vimMode: false,
@@ -230,6 +234,26 @@ export const DEFAULT_PREFERENCES: Preferences = {
 };
 
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
+
+/** Migrate a single legacy model id string to the new array format.
+ *  Prefers the new array key; falls back to the old single-string key. */
+function migrateModelIds(
+  stored: string[] | undefined,
+  legacy: string | undefined,
+): string[] {
+  if (stored && stored.length > 0) return stored;
+  if (legacy?.trim()) return [legacy.trim()];
+  return [];
+}
+
+/** Migrate a stored CustomEndpoint from the old `modelId: string` shape to
+ *  the new `modelIds: string[]` shape. */
+function migrateEndpointModelIds(ep: CustomEndpoint): CustomEndpoint {
+  if (Array.isArray(ep.modelIds)) return ep;
+  // Old shape: modelId is a string on the stored object (cast through unknown).
+  const old = (ep as unknown as { modelId?: string }).modelId;
+  return { ...ep, modelIds: old?.trim() ? [old.trim()] : [] };
+}
 
 // LazyStore.onChange only fires within the writing process. The settings
 // page lives in a separate webview, so writes there never reach the main
@@ -289,16 +313,22 @@ export async function loadPreferences(): Promise<Preferences> {
       DEFAULT_PREFERENCES.autocompleteModelId,
     lmstudioBaseURL:
       get<string>(KEY_LMSTUDIO_BASE_URL) ?? DEFAULT_PREFERENCES.lmstudioBaseURL,
-    lmstudioModelId:
-      get<string>(KEY_LMSTUDIO_MODEL_ID) ?? DEFAULT_PREFERENCES.lmstudioModelId,
+    lmstudioModelIds: migrateModelIds(
+      get<string[]>(KEY_LMSTUDIO_MODEL_IDS),
+      get<string>(KEY_LMSTUDIO_MODEL_ID_LEGACY),
+    ),
     mlxBaseURL:
       get<string>(KEY_MLX_BASE_URL) ?? DEFAULT_PREFERENCES.mlxBaseURL,
-    mlxModelId:
-      get<string>(KEY_MLX_MODEL_ID) ?? DEFAULT_PREFERENCES.mlxModelId,
+    mlxModelIds: migrateModelIds(
+      get<string[]>(KEY_MLX_MODEL_IDS),
+      get<string>(KEY_MLX_MODEL_ID_LEGACY),
+    ),
     ollamaBaseURL:
       get<string>(KEY_OLLAMA_BASE_URL) ?? DEFAULT_PREFERENCES.ollamaBaseURL,
-    ollamaModelId:
-      get<string>(KEY_OLLAMA_MODEL_ID) ?? DEFAULT_PREFERENCES.ollamaModelId,
+    ollamaModelIds: migrateModelIds(
+      get<string[]>(KEY_OLLAMA_MODEL_IDS),
+      get<string>(KEY_OLLAMA_MODEL_ID_LEGACY),
+    ),
     openaiCompatibleBaseURL:
       get<string>(KEY_OPENAI_COMPAT_BASE_URL) ??
       DEFAULT_PREFERENCES.openaiCompatibleBaseURL,
@@ -310,7 +340,8 @@ export async function loadPreferences(): Promise<Preferences> {
       DEFAULT_PREFERENCES.openaiCompatibleContextLimit,
     customEndpoints: (() => {
       const stored = get<CustomEndpoint[]>(KEY_CUSTOM_ENDPOINTS);
-      if (stored && stored.length > 0) return stored;
+      if (stored && stored.length > 0)
+        return stored.map(migrateEndpointModelIds);
       return migrateLegacyCompatEndpoint(
         get<string>(KEY_OPENAI_COMPAT_BASE_URL) ?? "",
         get<string>(KEY_OPENAI_COMPAT_MODEL_ID) ?? "",
@@ -318,9 +349,10 @@ export async function loadPreferences(): Promise<Preferences> {
         crypto.randomUUID().slice(0, 8),
       );
     })(),
-    openrouterModelId:
-      get<string>(KEY_OPENROUTER_MODEL_ID) ??
-      DEFAULT_PREFERENCES.openrouterModelId,
+    openrouterModelIds: migrateModelIds(
+      get<string[]>(KEY_OPENROUTER_MODEL_IDS),
+      get<string>(KEY_OPENROUTER_MODEL_ID_LEGACY),
+    ),
     favoriteModelIds: (
       get<string[]>(KEY_FAVORITE_MODELS) ??
       DEFAULT_PREFERENCES.favoriteModelIds
@@ -474,24 +506,24 @@ export async function setLmstudioBaseURL(value: string): Promise<void> {
   await writePref(KEY_LMSTUDIO_BASE_URL, value);
 }
 
-export async function setLmstudioModelId(value: string): Promise<void> {
-  await writePref(KEY_LMSTUDIO_MODEL_ID, value);
+export async function setLmstudioModelIds(value: string[]): Promise<void> {
+  await writePref(KEY_LMSTUDIO_MODEL_IDS, value);
 }
 
 export async function setMlxBaseURL(value: string): Promise<void> {
   await writePref(KEY_MLX_BASE_URL, value);
 }
 
-export async function setMlxModelId(value: string): Promise<void> {
-  await writePref(KEY_MLX_MODEL_ID, value);
+export async function setMlxModelIds(value: string[]): Promise<void> {
+  await writePref(KEY_MLX_MODEL_IDS, value);
 }
 
 export async function setOllamaBaseURL(value: string): Promise<void> {
   await writePref(KEY_OLLAMA_BASE_URL, value);
 }
 
-export async function setOllamaModelId(value: string): Promise<void> {
-  await writePref(KEY_OLLAMA_MODEL_ID, value);
+export async function setOllamaModelIds(value: string[]): Promise<void> {
+  await writePref(KEY_OLLAMA_MODEL_IDS, value);
 }
 
 export async function setOpenaiCompatibleBaseURL(value: string): Promise<void> {
@@ -517,8 +549,8 @@ export async function setCustomEndpoints(
   await writePref(KEY_CUSTOM_ENDPOINTS, value);
 }
 
-export async function setOpenrouterModelId(value: string): Promise<void> {
-  await writePref(KEY_OPENROUTER_MODEL_ID, value);
+export async function setOpenrouterModelIds(value: string[]): Promise<void> {
+  await writePref(KEY_OPENROUTER_MODEL_IDS, value);
 }
 
 export async function setFavoriteModelIds(value: string[]): Promise<void> {
@@ -675,16 +707,16 @@ export async function onPreferencesChange(
     [KEY_AUTOCOMPLETE_PROVIDER]: "autocompleteProvider",
     [KEY_AUTOCOMPLETE_MODEL]: "autocompleteModelId",
     [KEY_LMSTUDIO_BASE_URL]: "lmstudioBaseURL",
-    [KEY_LMSTUDIO_MODEL_ID]: "lmstudioModelId",
+    [KEY_LMSTUDIO_MODEL_IDS]: "lmstudioModelIds",
     [KEY_MLX_BASE_URL]: "mlxBaseURL",
-    [KEY_MLX_MODEL_ID]: "mlxModelId",
+    [KEY_MLX_MODEL_IDS]: "mlxModelIds",
     [KEY_OLLAMA_BASE_URL]: "ollamaBaseURL",
-    [KEY_OLLAMA_MODEL_ID]: "ollamaModelId",
+    [KEY_OLLAMA_MODEL_IDS]: "ollamaModelIds",
     [KEY_OPENAI_COMPAT_BASE_URL]: "openaiCompatibleBaseURL",
     [KEY_OPENAI_COMPAT_MODEL_ID]: "openaiCompatibleModelId",
     [KEY_OPENAI_COMPAT_CONTEXT_LIMIT]: "openaiCompatibleContextLimit",
     [KEY_CUSTOM_ENDPOINTS]: "customEndpoints",
-    [KEY_OPENROUTER_MODEL_ID]: "openrouterModelId",
+    [KEY_OPENROUTER_MODEL_IDS]: "openrouterModelIds",
     [KEY_FAVORITE_MODELS]: "favoriteModelIds",
     [KEY_RECENT_MODELS]: "recentModelIds",
     [KEY_VIM_MODE]: "vimMode",

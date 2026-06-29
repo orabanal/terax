@@ -9,7 +9,6 @@ import {
 } from "ai";
 import {
   DEFAULT_MODEL_ID,
-  endpointIdFromCompatModel,
   getModelContextLimit,
   isCompatModelId,
   LMSTUDIO_DEFAULT_BASE_URL,
@@ -17,6 +16,8 @@ import {
   MLX_DEFAULT_BASE_URL,
   modelKeepsReasoning,
   OLLAMA_DEFAULT_BASE_URL,
+  parseCompatModelId,
+  parseIndexedLocalModelId,
   providerNeedsKey,
   resolveModel,
   selectSystemPrompt,
@@ -220,14 +221,14 @@ export async function buildLanguageModel(
 
 export type LocalProviderConfig = {
   lmstudioBaseURL?: string;
-  lmstudioModelId?: string;
+  lmstudioModelIds?: string[];
   mlxBaseURL?: string;
-  mlxModelId?: string;
+  mlxModelIds?: string[];
   ollamaBaseURL?: string;
-  ollamaModelId?: string;
+  ollamaModelIds?: string[];
   openaiCompatibleBaseURL?: string;
   openaiCompatibleModelId?: string;
-  openrouterModelId?: string;
+  openrouterModelIds?: string[];
   customEndpoints?: readonly CustomEndpoint[];
   customEndpointKeys?: CustomEndpointKeys;
 };
@@ -237,46 +238,82 @@ export function buildConfiguredLanguageModel(
   keys: ProviderKeys,
   local: LocalProviderConfig = {},
 ): Promise<LanguageModel> {
+  // Indexed compat models: compat-{endpointId}-{modelIndex}
   if (isCompatModelId(modelId)) {
-    const eid = endpointIdFromCompatModel(modelId);
-    const ep = local.customEndpoints?.find((e) => e.id === eid);
-    if (!ep) throw new Error(`Custom endpoint not found: ${eid}`);
-    if (!ep.modelId.trim()) {
+    const parsed = parseCompatModelId(modelId);
+    if (!parsed) throw new Error(`Invalid compat model id: ${modelId}`);
+    const ep = local.customEndpoints?.find((e) => e.id === parsed.endpointId);
+    if (!ep) throw new Error(`Custom endpoint not found: ${parsed.endpointId}`);
+    const resolvedModelId = ep.modelIds?.[parsed.modelIndex]?.trim();
+    if (!resolvedModelId) {
       throw new Error(
-        `${ep.name}: no model id set. Open Settings → Models.`,
+        `${ep.name}: model at index ${parsed.modelIndex} not found. Open Settings → Models.`,
       );
     }
     return buildLanguageModel(
       "openai-compatible",
       keys,
-      ep.modelId.trim(),
+      resolvedModelId,
       { openaiCompatibleBaseURL: ep.baseURL },
-      local.customEndpointKeys?.[eid],
+      local.customEndpointKeys?.[parsed.endpointId],
     );
   }
+
+  // Indexed local provider models: {provider}-local-{modelIndex}
+  const indexedLocal = parseIndexedLocalModelId(modelId);
+  if (indexedLocal) {
+    const { provider, modelIndex } = indexedLocal;
+    const modelIds =
+      provider === "lmstudio"
+        ? local.lmstudioModelIds
+        : provider === "mlx"
+          ? local.mlxModelIds
+          : provider === "ollama"
+            ? local.ollamaModelIds
+            : provider === "openrouter"
+              ? local.openrouterModelIds
+              : undefined;
+    const resolvedModelId = modelIds?.[modelIndex]?.trim();
+    if (!resolvedModelId) {
+      throw new Error(
+        `${provider}: model at index ${modelIndex} not found. Open Settings → Models.`,
+      );
+    }
+    return buildLanguageModel(provider as ProviderId, keys, resolvedModelId, {
+      lmstudioBaseURL: local.lmstudioBaseURL,
+      mlxBaseURL: local.mlxBaseURL,
+      ollamaBaseURL: local.ollamaBaseURL,
+      openaiCompatibleBaseURL: local.openaiCompatibleBaseURL,
+    });
+  }
+
+  // Legacy non-indexed placeholders (kept for backward compat)
   const m = resolveModel(modelId);
   let resolvedId: string = m.id;
   if (m.id === "lmstudio-local") {
-    if (!local.lmstudioModelId?.trim()) {
+    const first = local.lmstudioModelIds?.[0]?.trim();
+    if (!first) {
       throw new Error(
         "LM Studio: no model id set. Open Settings → Models and enter the model id loaded in LM Studio.",
       );
     }
-    resolvedId = local.lmstudioModelId.trim();
+    resolvedId = first;
   } else if (m.id === "mlx-local") {
-    if (!local.mlxModelId?.trim()) {
+    const first = local.mlxModelIds?.[0]?.trim();
+    if (!first) {
       throw new Error(
         "MLX: no model id set. Open Settings → Models and enter the model id served by mlx_lm.server.",
       );
     }
-    resolvedId = local.mlxModelId.trim();
+    resolvedId = first;
   } else if (m.id === "ollama-local") {
-    if (!local.ollamaModelId?.trim()) {
+    const first = local.ollamaModelIds?.[0]?.trim();
+    if (!first) {
       throw new Error(
         "Ollama: no model id set. Open Settings → Models and enter the model id (e.g. the name from `ollama list`).",
       );
     }
-    resolvedId = local.ollamaModelId.trim();
+    resolvedId = first;
   } else if (m.id === "openai-compatible-custom") {
     if (!local.openaiCompatibleModelId?.trim()) {
       throw new Error(
@@ -285,12 +322,13 @@ export function buildConfiguredLanguageModel(
     }
     resolvedId = local.openaiCompatibleModelId.trim();
   } else if (m.id === "openrouter-custom") {
-    if (!local.openrouterModelId?.trim()) {
+    const first = local.openrouterModelIds?.[0]?.trim();
+    if (!first) {
       throw new Error(
         "OpenRouter: no model id set. Open Settings → Models and enter an OpenRouter model id (e.g. anthropic/claude-sonnet-4-6).",
       );
     }
-    resolvedId = local.openrouterModelId.trim();
+    resolvedId = first;
   }
   return buildLanguageModel(m.provider, keys, resolvedId, {
     lmstudioBaseURL: local.lmstudioBaseURL,
@@ -373,15 +411,15 @@ export type RunAgentOptions = {
   onCompact?: (info: { droppedCount: number }) => void;
   onFinishMeta?: (info: { hitStepCap: boolean; finishReason: string }) => void;
   lmstudioBaseURL?: string;
-  lmstudioModelId?: string;
+  lmstudioModelIds?: string[];
   mlxBaseURL?: string;
-  mlxModelId?: string;
+  mlxModelIds?: string[];
   ollamaBaseURL?: string;
-  ollamaModelId?: string;
+  ollamaModelIds?: string[];
   openaiCompatibleBaseURL?: string;
   openaiCompatibleModelId?: string;
   openaiCompatibleContextLimit?: number;
-  openrouterModelId?: string;
+  openrouterModelIds?: string[];
   customEndpoints?: readonly CustomEndpoint[];
   customEndpointKeys?: CustomEndpointKeys;
   planMode?: boolean;
@@ -435,14 +473,14 @@ export async function runAgentStream(opts: RunAgentOptions) {
   const modelId = opts.modelId ?? DEFAULT_MODEL_ID;
   const model = await buildConfiguredLanguageModel(modelId, opts.keys, {
     lmstudioBaseURL: opts.lmstudioBaseURL,
-    lmstudioModelId: opts.lmstudioModelId,
+    lmstudioModelIds: opts.lmstudioModelIds,
     mlxBaseURL: opts.mlxBaseURL,
-    mlxModelId: opts.mlxModelId,
+    mlxModelIds: opts.mlxModelIds,
     ollamaBaseURL: opts.ollamaBaseURL,
-    ollamaModelId: opts.ollamaModelId,
+    ollamaModelIds: opts.ollamaModelIds,
     openaiCompatibleBaseURL: opts.openaiCompatibleBaseURL,
     openaiCompatibleModelId: opts.openaiCompatibleModelId,
-    openrouterModelId: opts.openrouterModelId,
+    openrouterModelIds: opts.openrouterModelIds,
     customEndpoints: opts.customEndpoints,
     customEndpointKeys: opts.customEndpointKeys,
   });
@@ -465,8 +503,9 @@ export async function runAgentStream(opts: RunAgentOptions) {
     emptyMessages: "remove",
   });
   const compatCtxOverride = isCompatModelId(modelId)
-    ? endpoints.find((e) => e.id === endpointIdFromCompatModel(modelId))
-        ?.contextLimit
+    ? endpoints.find(
+        (e) => e.id === parseCompatModelId(modelId)?.endpointId,
+      )?.contextLimit
     : opts.openaiCompatibleContextLimit;
   const compact = compactModelMessagesDetailed(
     prunedHistory,

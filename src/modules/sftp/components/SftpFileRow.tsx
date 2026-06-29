@@ -4,7 +4,7 @@ import { Link01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { formatMtime, formatPermissions, formatSize } from "../lib/format";
-import type { SftpEntry } from "../lib/types";
+import type { ColWidths, SftpEntry, SftpViewMode } from "../lib/types";
 
 type Props = {
   entry: SftpEntry;
@@ -15,6 +15,8 @@ type Props = {
   editing?: boolean;
   onCommitRename?: (newName: string) => void;
   onCancelEdit?: () => void;
+  viewMode?: SftpViewMode;
+  colWidths?: ColWidths;
 };
 
 function iconFor(entry: SftpEntry): string {
@@ -48,8 +50,6 @@ function InlineEdit({
     }
   }, [initialValue]);
 
-  // Cancel on click outside — uses document listener so it works even when
-  // focus is stolen by context menus or other overlays.
   useEffect(() => {
     const handleDocMouseDown = (e: MouseEvent) => {
       if (inputRef.current && !inputRef.current.contains(e.target as Node)) {
@@ -107,7 +107,40 @@ export const SftpFileRow = memo(function SftpFileRow({
   editing,
   onCommitRename,
   onCancelEdit,
+  viewMode = "list",
 }: Props) {
+  if (viewMode === "icons") {
+    return (
+      <div
+        role="gridcell"
+        data-row-name={entry.name}
+        data-row-kind={entry.kind}
+        aria-selected={selected}
+        onMouseDown={editing ? undefined : onMouseDown}
+        onDoubleClick={editing ? undefined : onDoubleClick}
+        className={cn(
+          "flex cursor-default select-none flex-col items-center gap-1 rounded p-1.5 text-center",
+          selected
+            ? "bg-accent text-foreground"
+            : "text-foreground/90 hover:bg-accent/50",
+        )}
+      >
+        <img src={iconFor(entry)} alt="" className="size-9 shrink-0" />
+        {editing ? (
+          <InlineEdit
+            initialValue={entry.name}
+            onCommit={(name) => onCommitRename?.(name)}
+            onCancel={() => onCancelEdit?.()}
+          />
+        ) : (
+          <span className="line-clamp-2 w-full break-all text-xs leading-tight">
+            {entry.name || ""}
+          </span>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div
       role="row"
@@ -143,13 +176,22 @@ export const SftpFileRow = memo(function SftpFileRow({
           )}
         </span>
       )}
-      <span className="w-20 shrink-0 text-right tabular-nums text-muted-foreground">
+      <span
+        className="shrink-0 text-right tabular-nums text-muted-foreground"
+        style={{ width: "var(--sftp-col-size, 80px)" }}
+      >
         {entry.kind === "dir" ? "—" : formatSize(entry.size)}
       </span>
-      <span className="w-28 shrink-0 text-right tabular-nums text-muted-foreground">
+      <span
+        className="shrink-0 text-right tabular-nums text-muted-foreground"
+        style={{ width: "var(--sftp-col-mtime, 112px)" }}
+      >
         {formatMtime(entry.mtime, now)}
       </span>
-      <span className="w-24 shrink-0 text-right font-mono text-[11px] text-muted-foreground">
+      <span
+        className="shrink-0 text-right font-mono text-[11px] text-muted-foreground"
+        style={{ width: "var(--sftp-col-permissions, 96px)" }}
+      >
         {entry.mode === undefined ? "—" : formatPermissions(entry.mode)}
       </span>
     </div>

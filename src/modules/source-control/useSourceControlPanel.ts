@@ -381,17 +381,17 @@ export function useSourceControlPanel(
     const model = resolveModel(state.selectedModelId);
     return !providerNeedsKey(model.provider) || !!state.apiKeys[model.provider];
   });
-  const lmstudioModelId = usePreferencesStore((state) => state.lmstudioModelId);
-  const mlxModelId = usePreferencesStore((state) => state.mlxModelId);
-  const ollamaModelId = usePreferencesStore((state) => state.ollamaModelId);
+  const lmstudioModelIds = usePreferencesStore((state) => state.lmstudioModelIds);
+  const mlxModelIds = usePreferencesStore((state) => state.mlxModelIds);
+  const ollamaModelIds = usePreferencesStore((state) => state.ollamaModelIds);
   const openaiCompatibleBaseURL = usePreferencesStore(
     (state) => state.openaiCompatibleBaseURL,
   );
   const openaiCompatibleModelId = usePreferencesStore(
     (state) => state.openaiCompatibleModelId,
   );
-  const openrouterModelId = usePreferencesStore(
-    (state) => state.openrouterModelId,
+  const openrouterModelIds = usePreferencesStore(
+    (state) => state.openrouterModelIds,
   );
   const [panelState, setPanelState] = useState<PanelState>("closed");
   const [repo, setRepo] = useState<GitRepoInfo | null>(null);
@@ -481,13 +481,13 @@ export function useSourceControlPanel(
     if (!hasApiKeyForSelected) {
       return "Connect an AI provider to generate commit messages";
     }
-    if (selectedModel.id === "lmstudio-local" && !lmstudioModelId.trim()) {
+    if (selectedModel.id === "lmstudio-local" && lmstudioModelIds.length === 0) {
       return "Connect an AI provider to generate commit messages";
     }
-    if (selectedModel.id === "mlx-local" && !mlxModelId.trim()) {
+    if (selectedModel.id === "mlx-local" && mlxModelIds.length === 0) {
       return "Connect an AI provider to generate commit messages";
     }
-    if (selectedModel.id === "ollama-local" && !ollamaModelId.trim()) {
+    if (selectedModel.id === "ollama-local" && ollamaModelIds.length === 0) {
       return "Connect an AI provider to generate commit messages";
     }
     if (
@@ -496,18 +496,18 @@ export function useSourceControlPanel(
     ) {
       return "Connect an AI provider to generate commit messages";
     }
-    if (selectedModel.id === "openrouter-custom" && !openrouterModelId.trim()) {
+    if (selectedModel.id === "openrouter-custom" && openrouterModelIds.length === 0) {
       return "Connect an AI provider to generate commit messages";
     }
     return null;
   }, [
     hasApiKeyForSelected,
-    lmstudioModelId,
-    mlxModelId,
-    ollamaModelId,
+    lmstudioModelIds,
+    mlxModelIds,
+    ollamaModelIds,
     openaiCompatibleBaseURL,
     openaiCompatibleModelId,
-    openrouterModelId,
+    openrouterModelIds,
     selectedModel,
     stagedEntries.length,
   ]);
@@ -910,14 +910,14 @@ export function useSourceControlPanel(
         chatState.apiKeys,
         {
           lmstudioBaseURL: prefs.lmstudioBaseURL,
-          lmstudioModelId,
+          lmstudioModelIds,
           mlxBaseURL: prefs.mlxBaseURL,
-          mlxModelId,
+          mlxModelIds,
           ollamaBaseURL: prefs.ollamaBaseURL,
-          ollamaModelId,
+          ollamaModelIds,
           openaiCompatibleBaseURL,
           openaiCompatibleModelId,
-          openrouterModelId,
+          openrouterModelIds,
         },
       );
       const result = await generateText({
@@ -953,12 +953,12 @@ export function useSourceControlPanel(
   }, [
     aiUnavailableReason,
     aiBusy,
-    lmstudioModelId,
-    mlxModelId,
-    ollamaModelId,
+    lmstudioModelIds,
+    mlxModelIds,
+    ollamaModelIds,
     openaiCompatibleBaseURL,
     openaiCompatibleModelId,
-    openrouterModelId,
+    openrouterModelIds,
     repo,
     selectedModelId,
     stagedEntries,

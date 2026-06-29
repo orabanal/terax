@@ -44,15 +44,15 @@ import {
   setDefaultModel,
   setFavoriteModelIds,
   setLmstudioBaseURL,
-  setLmstudioModelId,
+  setLmstudioModelIds,
   setMlxBaseURL,
-  setMlxModelId,
+  setMlxModelIds,
   setOllamaBaseURL,
-  setOllamaModelId,
+  setOllamaModelIds,
   setOpenaiCompatibleBaseURL,
   setOpenaiCompatibleContextLimit,
   setOpenaiCompatibleModelId,
-  setOpenrouterModelId,
+  setOpenrouterModelIds,
   setRecentModelIds,
 } from "@/modules/settings/store";
 import {
@@ -136,17 +136,17 @@ export function ModelsSection() {
 
   const defaultModel = usePreferencesStore((s) => s.defaultModelId);
   const lmstudioBaseURL = usePreferencesStore((s) => s.lmstudioBaseURL);
-  const lmstudioModelId = usePreferencesStore((s) => s.lmstudioModelId);
+  const lmstudioModelIds = usePreferencesStore((s) => s.lmstudioModelIds);
   const mlxBaseURL = usePreferencesStore((s) => s.mlxBaseURL);
-  const mlxModelId = usePreferencesStore((s) => s.mlxModelId);
+  const mlxModelIds = usePreferencesStore((s) => s.mlxModelIds);
   const ollamaBaseURL = usePreferencesStore((s) => s.ollamaBaseURL);
-  const ollamaModelId = usePreferencesStore((s) => s.ollamaModelId);
+  const ollamaModelIds = usePreferencesStore((s) => s.ollamaModelIds);
   const compatBaseURL = usePreferencesStore((s) => s.openaiCompatibleBaseURL);
   const compatModelId = usePreferencesStore((s) => s.openaiCompatibleModelId);
   const compatContextLimit = usePreferencesStore(
     (s) => s.openaiCompatibleContextLimit,
   );
-  const openrouterModelId = usePreferencesStore((s) => s.openrouterModelId);
+  const openrouterModelIds = usePreferencesStore((s) => s.openrouterModelIds);
   const customEndpoints = usePreferencesStore((s) => s.customEndpoints);
 
   useEffect(() => {
@@ -186,7 +186,7 @@ export function ModelsSection() {
       id: crypto.randomUUID().slice(0, 8),
       name: "",
       baseURL: "",
-      modelId: "",
+      modelIds: [],
       contextLimit: 128_000,
     };
     await setCustomEndpoints([...customEndpoints, ep]);
@@ -209,27 +209,31 @@ export function ModelsSection() {
       return next;
     });
 
-    // Drop the now-dead model id from favorites/recents before touching the
-    // selection, so the recents push from a selection reset can't race it.
-    const deadModelId = compatModelIdForEndpoint(id);
+    // Drop all indexed model ids for this endpoint from favorites/recents.
+    const ep = customEndpoints.find((e) => e.id === id);
+    const deadModelIds = (ep?.modelIds ?? []).map((_, i) =>
+      compatModelIdForEndpoint(id, i),
+    );
     const { favoriteModelIds, recentModelIds } = usePreferencesStore.getState();
-    if (favoriteModelIds.includes(deadModelId)) {
+    const deadSet = new Set(deadModelIds);
+    if (favoriteModelIds.some((m) => deadSet.has(m))) {
       await setFavoriteModelIds(
-        favoriteModelIds.filter((m) => m !== deadModelId),
+        favoriteModelIds.filter((m) => !deadSet.has(m)),
       );
     }
-    if (recentModelIds.includes(deadModelId)) {
-      await setRecentModelIds(recentModelIds.filter((m) => m !== deadModelId));
+    if (recentModelIds.some((m) => deadSet.has(m))) {
+      await setRecentModelIds(recentModelIds.filter((m) => !deadSet.has(m)));
     }
 
-    // If the deleted endpoint was the active model, the selection would dangle
-    // and the next send throws "Custom endpoint not found". Fall back to another
+    // If the deleted endpoint was the active model, fall back to another
     // endpoint when one remains, else the default model.
     const remaining = customEndpoints.filter((e) => e.id !== id);
     const { selectedModelId, setSelectedModelId } = useChatStore.getState();
-    if (selectedModelId === deadModelId) {
+    if (deadSet.has(selectedModelId)) {
       setSelectedModelId(
-        remaining[0] ? compatModelIdForEndpoint(remaining[0].id) : DEFAULT_MODEL_ID,
+        remaining[0]
+          ? compatModelIdForEndpoint(remaining[0].id, 0)
+          : DEFAULT_MODEL_ID,
       );
     }
 
@@ -241,39 +245,40 @@ export function ModelsSection() {
       case "lmstudio":
         return {
           baseURL: lmstudioBaseURL,
-          modelId: lmstudioModelId,
+          modelIds: lmstudioModelIds,
           setBaseURL: setLmstudioBaseURL,
-          setModelId: setLmstudioModelId,
+          setModelIds: setLmstudioModelIds,
         };
       case "mlx":
         return {
           baseURL: mlxBaseURL,
-          modelId: mlxModelId,
+          modelIds: mlxModelIds,
           setBaseURL: setMlxBaseURL,
-          setModelId: setMlxModelId,
+          setModelIds: setMlxModelIds,
         };
       case "ollama":
         return {
           baseURL: ollamaBaseURL,
-          modelId: ollamaModelId,
+          modelIds: ollamaModelIds,
           setBaseURL: setOllamaBaseURL,
-          setModelId: setOllamaModelId,
+          setModelIds: setOllamaModelIds,
         };
       case "openai-compatible":
         return {
           baseURL: compatBaseURL,
-          modelId: compatModelId,
+          modelIds: compatModelId ? [compatModelId] : [],
           setBaseURL: setOpenaiCompatibleBaseURL,
-          setModelId: setOpenaiCompatibleModelId,
+          setModelIds: async (v: string[]) =>
+            setOpenaiCompatibleModelId(v[0] ?? ""),
           contextLimit: compatContextLimit,
           setContextLimit: setOpenaiCompatibleContextLimit,
         };
       case "openrouter":
         return {
           baseURL: "",
-          modelId: openrouterModelId,
+          modelIds: openrouterModelIds,
           setBaseURL: async () => {},
-          setModelId: setOpenrouterModelId,
+          setModelIds: setOpenrouterModelIds,
           noBaseURL: true,
         };
       default:
@@ -283,13 +288,13 @@ export function ModelsSection() {
 
   const isConfigured = (id: ProviderId): boolean => {
     if (id === "openrouter")
-      return !!keys?.[id] && !!openrouterModelId.trim();
+      return !!keys?.[id] && openrouterModelIds.length > 0;
     if (!isLocalProvider(id)) return !!keys?.[id];
     const cfg = localConfig(id);
     if (!cfg) return false;
     if (id === "openai-compatible")
-      return !!cfg.baseURL.trim() && !!cfg.modelId.trim();
-    return !!cfg.modelId.trim();
+      return !!cfg.baseURL.trim() && cfg.modelIds.length > 0;
+    return cfg.modelIds.length > 0;
   };
 
   if (!keys) {
@@ -310,12 +315,12 @@ export function ModelsSection() {
 
   const removeProvider = (id: ProviderId) => {
     if (id === "openrouter") {
-      void setOpenrouterModelId("");
+      void setOpenrouterModelIds([]);
       void onClearKey(id);
     } else if (isLocalProvider(id)) {
       const cfg = localConfig(id);
       if (cfg) {
-        void cfg.setModelId("");
+        void cfg.setModelIds([]);
         if (id === "openai-compatible") void cfg.setBaseURL("");
       }
       if (id === "openai-compatible") void onClearKey(id);
@@ -422,9 +427,9 @@ export function ModelsSection() {
 
 type LocalConfig = {
   baseURL: string;
-  modelId: string;
+  modelIds: string[];
   setBaseURL: (v: string) => Promise<void>;
-  setModelId: (v: string) => Promise<void>;
+  setModelIds: (v: string[]) => Promise<void>;
   contextLimit?: number;
   setContextLimit?: (v: number) => Promise<void>;
   noBaseURL?: boolean;
@@ -756,15 +761,14 @@ function LocalProviderCard({
 }) {
   const {
     baseURL,
-    modelId,
+    modelIds,
     setBaseURL,
-    setModelId,
+    setModelIds,
     contextLimit,
     setContextLimit,
     noBaseURL,
   } = config;
   const [urlDraft, setUrlDraft] = useState(baseURL);
-  const [modelDraft, setModelDraft] = useState(modelId);
   const [contextDraft, setContextDraft] = useState(String(contextLimit ?? ""));
   const [keyDraft, setKeyDraft] = useState("");
   const [testStatus, setTestStatus] = useState<
@@ -772,7 +776,6 @@ function LocalProviderCard({
   >("idle");
 
   useEffect(() => setUrlDraft(baseURL), [baseURL]);
-  useEffect(() => setModelDraft(modelId), [modelId]);
   useEffect(() => setContextDraft(String(contextLimit ?? "")), [contextLimit]);
 
   const supportsKey =
@@ -853,19 +856,11 @@ function LocalProviderCard({
           </FieldRow>
         )}
 
-        <FieldRow label="Model ID">
-          <Input
-            value={modelDraft}
-            onChange={(e) => setModelDraft(e.target.value)}
-            onBlur={() => {
-              const v = modelDraft.trim();
-              if (v !== modelId) void setModelId(v);
-            }}
-            placeholder={meta.modelPlaceholder}
-            spellCheck={false}
-            className="h-8 font-mono text-[11.5px]"
-          />
-        </FieldRow>
+        <ModelIdsField
+          modelIds={modelIds}
+          onChange={setModelIds}
+          placeholder={meta.modelPlaceholder}
+        />
 
         {setContextLimit ? (
           <FieldRow label="Context">
@@ -934,7 +929,7 @@ function LocalProviderCard({
 
         <StatusLine status={testStatus} />
 
-        {!modelId.trim() && meta.modelHint ? (
+        {modelIds.length === 0 && meta.modelHint ? (
           <p className="text-[10.5px] leading-relaxed text-muted-foreground">
             {meta.modelHint}
           </p>
@@ -962,7 +957,6 @@ function CustomEndpointCard({
   const [expanded, setExpanded] = useState(!endpoint.baseURL.trim());
   const [nameDraft, setNameDraft] = useState(endpoint.name);
   const [urlDraft, setUrlDraft] = useState(endpoint.baseURL);
-  const [modelDraft, setModelDraft] = useState(endpoint.modelId);
   const [contextDraft, setContextDraft] = useState(
     String(endpoint.contextLimit ?? ""),
   );
@@ -973,14 +967,13 @@ function CustomEndpointCard({
 
   useEffect(() => setNameDraft(endpoint.name), [endpoint.name]);
   useEffect(() => setUrlDraft(endpoint.baseURL), [endpoint.baseURL]);
-  useEffect(() => setModelDraft(endpoint.modelId), [endpoint.modelId]);
   useEffect(
     () => setContextDraft(String(endpoint.contextLimit ?? "")),
     [endpoint.contextLimit],
   );
 
   const configured =
-    !!endpoint.baseURL.trim() && !!endpoint.modelId.trim();
+    !!endpoint.baseURL.trim() && endpoint.modelIds.length > 0;
 
   const test = async () => {
     setTestStatus("testing");
@@ -1012,9 +1005,11 @@ function CustomEndpointCard({
         <span className="text-[12.5px] font-medium truncate">
           {endpoint.name || "OpenAI Compatible"}
         </span>
-        {endpoint.modelId.trim() && (
+        {endpoint.modelIds.length > 0 && (
           <span className="text-[10.5px] text-muted-foreground truncate font-mono">
-            {endpoint.modelId}
+            {endpoint.modelIds.length === 1
+              ? endpoint.modelIds[0]
+              : `${endpoint.modelIds.length} models`}
           </span>
         )}
         {configured ? (
@@ -1081,19 +1076,11 @@ function CustomEndpointCard({
             </div>
           </FieldRow>
 
-          <FieldRow label="Model ID">
-            <Input
-              value={modelDraft}
-              onChange={(e) => setModelDraft(e.target.value)}
-              onBlur={() => {
-                const v = modelDraft.trim();
-                if (v !== endpoint.modelId) void onUpdate({ modelId: v });
-              }}
-              placeholder="gpt-4o, qwen3-max, glm-4.6, …"
-              spellCheck={false}
-              className="h-8 font-mono text-[11.5px]"
-            />
-          </FieldRow>
+          <ModelIdsField
+            modelIds={endpoint.modelIds}
+            onChange={async (v) => onUpdate({ modelIds: v })}
+            placeholder="gpt-4o, qwen3-max, glm-4.6, …"
+          />
 
           <FieldRow label="Context">
             <div className="flex flex-1 items-center gap-1.5">
@@ -1177,6 +1164,74 @@ function FieldRow({
         {label}
       </span>
       <div className="flex flex-1 items-center">{children}</div>
+    </div>
+  );
+}
+
+function ModelIdsField({
+  modelIds,
+  onChange,
+  placeholder,
+}: {
+  modelIds: string[];
+  onChange: (v: string[]) => Promise<void>;
+  placeholder?: string;
+}) {
+  const [draft, setDraft] = useState("");
+
+  const add = () => {
+    const v = draft.trim();
+    if (!v || modelIds.includes(v)) return;
+    void onChange([...modelIds, v]);
+    setDraft("");
+  };
+
+  const remove = (idx: number) => {
+    void onChange(modelIds.filter((_, i) => i !== idx));
+  };
+
+  return (
+    <div className="flex flex-1 flex-col gap-1.5">
+      {modelIds.map((m, i) => (
+        <div key={`${m}-${i}`} className="flex items-center gap-1.5">
+          <code className="flex-1 truncate rounded bg-muted/40 px-2 py-1 font-mono text-[11px] text-muted-foreground">
+            {m}
+          </code>
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => remove(i)}
+            title="Remove model"
+            className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
+          >
+            <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={1.75} />
+          </Button>
+        </div>
+      ))}
+      <div className="flex gap-1.5">
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              add();
+            }
+          }}
+          placeholder={placeholder ?? "model-id"}
+          spellCheck={false}
+          className="h-8 flex-1 font-mono text-[11.5px]"
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={add}
+          disabled={!draft.trim() || modelIds.includes(draft.trim())}
+          className="h-8 px-3 text-[11px]"
+        >
+          Add
+        </Button>
+      </div>
     </div>
   );
 }

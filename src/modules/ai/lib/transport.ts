@@ -54,15 +54,15 @@ type Deps = {
   getAgentPersona: () => { name: string; instructions: string } | null;
   getLive: () => LiveSnapshot;
   getLmstudioBaseURL?: () => string | undefined;
-  getLmstudioModelId?: () => string | undefined;
+  getLmstudioModelIds?: () => string[];
   getMlxBaseURL?: () => string | undefined;
-  getMlxModelId?: () => string | undefined;
+  getMlxModelIds?: () => string[];
   getOllamaBaseURL?: () => string | undefined;
-  getOllamaModelId?: () => string | undefined;
+  getOllamaModelIds?: () => string[];
   getOpenaiCompatibleBaseURL?: () => string | undefined;
   getOpenaiCompatibleModelId?: () => string | undefined;
   getOpenaiCompatibleContextLimit?: () => number | undefined;
-  getOpenrouterModelId?: () => string | undefined;
+  getOpenrouterModelIds?: () => string[];
   getCustomEndpoints?: () => readonly CustomEndpoint[];
   getCustomEndpointKeys?: () => CustomEndpointKeys;
   onStep?: (step: string | null) => void;
@@ -98,15 +98,15 @@ export function createContextAwareTransport(deps: Deps) {
       onCompact: deps.onCompact,
       onFinishMeta: deps.onFinishMeta,
       lmstudioBaseURL: deps.getLmstudioBaseURL?.(),
-      lmstudioModelId: deps.getLmstudioModelId?.(),
+      lmstudioModelIds: deps.getLmstudioModelIds?.(),
       mlxBaseURL: deps.getMlxBaseURL?.(),
-      mlxModelId: deps.getMlxModelId?.(),
+      mlxModelIds: deps.getMlxModelIds?.(),
       ollamaBaseURL: deps.getOllamaBaseURL?.(),
-      ollamaModelId: deps.getOllamaModelId?.(),
+      ollamaModelIds: deps.getOllamaModelIds?.(),
       openaiCompatibleBaseURL: deps.getOpenaiCompatibleBaseURL?.(),
       openaiCompatibleModelId: deps.getOpenaiCompatibleModelId?.(),
       openaiCompatibleContextLimit: deps.getOpenaiCompatibleContextLimit?.(),
-      openrouterModelId: deps.getOpenrouterModelId?.(),
+      openrouterModelIds: deps.getOpenrouterModelIds?.(),
       customEndpoints: deps.getCustomEndpoints?.(),
       customEndpointKeys: deps.getCustomEndpointKeys?.(),
       planMode: deps.getPlanMode?.(),

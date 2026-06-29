@@ -76,6 +76,12 @@ export type SftpPaneTarget =
   | { side: "local" }
   | { side: "remote"; hostId: string; hostName: string };
 
+/** Pixel widths for the resizable fixed columns in the SFTP list view. */
+export type ColWidths = { size: number; mtime: number; permissions: number };
+
+/** Layout mode for a pane: row-based list, icon grid, or expandable tree. */
+export type SftpViewMode = "list" | "icons" | "tree";
+
 /** Filesystem mutation operations shared by local and remote hooks. */
 export type DirMutations = {
   mkdir: (name: string) => Promise<void>;

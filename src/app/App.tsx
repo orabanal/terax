@@ -236,9 +236,13 @@ export default function App() {
   const activeAiScope = useMemo<SessionScope | null>(() => {
     if (!activeTab) return null;
     if (activeTab.kind === "terminal") {
-      return activeLeafId != null
-        ? { type: "terminal", targetId: String(activeLeafId) }
-        : null;
+      if (activeLeafId == null) return null;
+      // SSH tabs encode the host ID in the scope so sessions for different
+      // servers never mix, and sessions survive app restarts for the same host.
+      const targetId = activeTab.sshHostId
+        ? `${activeLeafId}:ssh:${activeTab.sshHostId}`
+        : String(activeLeafId);
+      return { type: "terminal", targetId };
     }
     return activeId != null
       ? { type: "workspace", targetId: String(activeId) }
@@ -249,7 +253,10 @@ export default function App() {
     for (const tab of tabs) {
       if (tab.kind === "terminal") {
         for (const leafId of leafIds(tab.paneTree)) {
-          keys.add(`terminal:${leafId}`);
+          const key = tab.sshHostId
+            ? `terminal:${leafId}:ssh:${tab.sshHostId}`
+            : `terminal:${leafId}`;
+          keys.add(key);
         }
       } else {
         keys.add(`workspace:${tab.id}`);

@@ -7,11 +7,12 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
-import { Plug01Icon } from "@hugeicons/core-free-icons";
+import { ArrowDown01Icon, ArrowRight01Icon, Plug01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { fileIconUrl, folderIconUrl } from "@/modules/explorer/lib/iconResolver";
 import {
   DEFAULT_SFTP_SORT,
   nextSftpSort,
@@ -19,7 +20,7 @@ import {
   type SftpSortColumn,
   type SftpSortState,
 } from "@/modules/sftp/lib/sortEntries";
-import type { DirMutations, SftpEntry, SftpPaneSide, SftpSide } from "../lib/types";
+import type { ColWidths, DirMutations, SftpEntry, SftpPaneSide, SftpSide, SftpViewMode } from "../lib/types";
 import type { SshHost } from "@/modules/ssh/store";
 import { SftpDragContext } from "../lib/SftpDragContext";
 import { useSftpBookmarks } from "../lib/useSftpBookmarks";
@@ -33,6 +34,8 @@ import { SftpToolbar } from "./SftpToolbar";
 const ROW_HEIGHT = 28;
 const OVERSCAN = 8;
 const MARQUEE_THRESHOLD = 4;
+const DEFAULT_COL_WIDTHS: ColWidths = { size: 80, mtime: 112, permissions: 96 };
+const MIN_COL_WIDTH = 48;
 /** Pixels the cursor must travel before a row press becomes a drag. */
 const DRAG_THRESHOLD = 4;
 
@@ -101,6 +104,120 @@ type Props = {
   onLocal?: () => void;
   onDuplicate?: (pane: import("../lib/types").SftpPaneRef, entries: SftpEntry[]) => void;
 } & DirMutations;
+
+type TreeNode = {
+  entry: SftpEntry;
+  depth: number;
+  fullPath: string;
+};
+
+function treeIconFor(entry: SftpEntry): string {
+  if (entry.kind === "dir") return folderIconUrl(entry.name, false);
+  return fileIconUrl(entry.name);
+}
+
+const COL_VAR: Record<keyof ColWidths, string> = {
+  size: "--sftp-col-size",
+  mtime: "--sftp-col-mtime",
+  permissions: "--sftp-col-permissions",
+};
+
+type ResizeHandleProps = {
+  col: keyof ColWidths;
+  startWidth: number;
+  containerRef: React.RefObject<HTMLElement | null>;
+  onResize: (col: keyof ColWidths, w: number) => void;
+};
+
+function ResizeHandle({ col, startWidth, containerRef, onResize }: ResizeHandleProps) {
+  const onMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const startX = e.clientX;
+      const varName = COL_VAR[col];
+
+      const clamp = (x: number) => Math.max(MIN_COL_WIDTH, x);
+
+      const onMove = (ev: MouseEvent) => {
+        const w = clamp(startWidth + (startX - ev.clientX));
+        // Direct DOM update — no React re-render during drag
+        containerRef.current?.style.setProperty(varName, `${w}px`);
+      };
+
+      const onUp = (ev: MouseEvent) => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+        const w = clamp(startWidth + (startX - ev.clientX));
+        containerRef.current?.style.setProperty(varName, `${w}px`);
+        onResize(col, w);
+      };
+
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    },
+    [col, startWidth, containerRef, onResize],
+  );
+
+  return (
+    <div
+      className="group absolute inset-y-0 -left-[5px] z-10 flex w-[10px] cursor-col-resize items-center justify-center"
+      onMouseDown={onMouseDown}
+    >
+      <div className="h-full w-px bg-border/60 transition-colors group-hover:bg-primary/70 group-active:bg-primary" />
+    </div>
+  );
+}
+
+type TreeRowProps = {
+  node: TreeNode;
+  selected: boolean;
+  expanded: boolean;
+  loading: boolean;
+  onMouseDown: (e: React.MouseEvent) => void;
+  onDoubleClick: () => void;
+  onToggle: (e: React.MouseEvent) => void;
+};
+
+function TreeRow({ node, selected, expanded, loading, onMouseDown, onDoubleClick, onToggle }: TreeRowProps) {
+  const isDir = node.entry.kind === "dir";
+  return (
+    <div
+      role="row"
+      data-row-name={node.entry.name}
+      data-row-kind={node.entry.kind}
+      aria-selected={selected}
+      onMouseDown={onMouseDown}
+      onDoubleClick={onDoubleClick}
+      style={{ paddingLeft: `${node.depth * 16 + 8}px` }}
+      className={cn(
+        "flex h-7 w-full cursor-default select-none items-center gap-1.5 pr-2 text-xs",
+        selected ? "bg-accent text-foreground" : "text-foreground/90 hover:bg-accent/50",
+      )}
+    >
+      <button
+        type="button"
+        className="flex size-4 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
+        onClick={onToggle}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        {isDir && (
+          loading ? (
+            <div className="size-3 animate-spin rounded-full border border-current border-t-transparent" />
+          ) : (
+            <HugeiconsIcon
+              icon={expanded ? ArrowDown01Icon : ArrowRight01Icon}
+              size={10}
+              strokeWidth={2.5}
+            />
+          )
+        )}
+      </button>
+      <img src={treeIconFor(node.entry)} alt="" className="size-4 shrink-0" />
+      <span className="min-w-0 flex-1 truncate">{node.entry.name}</span>
+    </div>
+  );
+}
 
 type SortHeaderProps = {
   column: SftpSortColumn;
@@ -193,7 +310,30 @@ export function SftpPane({
   const [modal, setModal] = useState<ModalDialogState>({ kind: "none" });
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [sort, setSort] = useState<SftpSortState>(DEFAULT_SFTP_SORT);
+  const [colWidths, setColWidths] = useState<ColWidths>(DEFAULT_COL_WIDTHS);
+  const [viewMode, setViewMode] = useState<SftpViewMode>("list");
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const handleResize = useCallback(
+    (col: keyof ColWidths, w: number) => setColWidths((prev) => ({ ...prev, [col]: w })),
+    [],
+  );
+
+  // Keep CSS custom properties in sync with state (before paint to avoid flash).
+  // During a drag, the ResizeHandle updates these variables directly on the DOM
+  // without going through React, so no re-renders happen while dragging.
+  useLayoutEffect(() => {
+    const el = paneRootRef.current;
+    if (!el) return;
+    el.style.setProperty(COL_VAR.size, `${colWidths.size}px`);
+    el.style.setProperty(COL_VAR.mtime, `${colWidths.mtime}px`);
+    el.style.setProperty(COL_VAR.permissions, `${colWidths.permissions}px`);
+  }, [colWidths]);
+
+  // Tree view state
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+  const [dirContents, setDirContents] = useState<Map<string, SftpEntry[]>>(new Map());
+  const [loadingPaths, setLoadingPaths] = useState<Set<string>>(new Set());
 
   const drag = useContext(SftpDragContext);
 
@@ -238,6 +378,70 @@ export function SftpPane({
     }
   }, [focused]);
 
+  // Reset tree expansion when navigating to a different directory
+  useEffect(() => {
+    setExpandedPaths(new Set());
+    setDirContents(new Map());
+    setLoadingPaths(new Set());
+  }, [path]);
+
+  // Invalidate cached subtree contents when hidden-file preference changes
+  useEffect(() => {
+    setDirContents(new Map());
+  }, [showHidden]);
+
+  const loadDirContents = useCallback(
+    async (dirPath: string) => {
+      if (loadingPaths.has(dirPath)) return;
+      setLoadingPaths((prev) => new Set([...prev, dirPath]));
+      try {
+        let loaded: SftpEntry[];
+        if (effectiveMode === "local") {
+          loaded = await invoke<SftpEntry[]>("fs_read_dir", {
+            path: dirPath,
+            showHidden: showHidden ?? false,
+          });
+        } else if (sessionId != null) {
+          loaded = await invoke<SftpEntry[]>("sftp_list_dir", {
+            sessionId,
+            path: dirPath,
+          });
+        } else {
+          return;
+        }
+        setDirContents((prev) => new Map(prev).set(dirPath, loaded));
+      } catch {
+        // directory unreadable — leave it collapsed
+      } finally {
+        setLoadingPaths((prev) => {
+          const s = new Set(prev);
+          s.delete(dirPath);
+          return s;
+        });
+      }
+    },
+    [loadingPaths, effectiveMode, showHidden, sessionId],
+  );
+
+  const toggleExpand = useCallback(
+    (fullPath: string, entry: SftpEntry) => {
+      if (entry.kind !== "dir") return;
+      setExpandedPaths((prev) => {
+        const next = new Set(prev);
+        if (next.has(fullPath)) {
+          next.delete(fullPath);
+          return next;
+        }
+        next.add(fullPath);
+        return next;
+      });
+      if (!dirContents.has(fullPath)) {
+        void loadDirContents(fullPath);
+      }
+    },
+    [dirContents, loadDirContents],
+  );
+
   const isError = status === "error";
   const isRoot = path === "/";
 
@@ -266,17 +470,49 @@ export function SftpPane({
     return result;
   }, [entries, filter, isError, isRoot, inlineEdit, sort]);
 
+  const treeNodes = useMemo((): TreeNode[] => {
+    if (viewMode !== "tree" || isError) return [];
+
+    const buildNodes = (nodeEntries: SftpEntry[], basePath: string, depth: number): TreeNode[] => {
+      const f = filter.trim().toLowerCase();
+      const filtered = nodeEntries.filter(
+        (e) => e.name !== ".." && (!f || e.name.toLowerCase().includes(f)),
+      );
+      const result: TreeNode[] = [];
+      for (const entry of sortSftpEntries(filtered, sort)) {
+        const fullPath = basePath === "/" ? `/${entry.name}` : `${basePath}/${entry.name}`;
+        result.push({ entry, depth, fullPath });
+        if (entry.kind === "dir" && expandedPaths.has(fullPath)) {
+          const children = dirContents.get(fullPath);
+          if (children) result.push(...buildNodes(children, fullPath, depth + 1));
+        }
+      }
+      return result;
+    };
+
+    return buildNodes(entries, path, 0);
+  }, [viewMode, isError, entries, path, filter, sort, expandedPaths, dirContents]);
+
+  // Active items: treeNodes in tree mode, sorted in list/icons modes
+  const activeList = viewMode === "tree" ? treeNodes : sorted;
+
   const virtualizer = useVirtualizer({
-    count: sorted.length,
+    count: activeList.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: OVERSCAN,
-    getItemKey: (index) => sorted[index]?.name ?? `phantom-${index}`,
+    getItemKey: (index) => {
+      if (viewMode === "tree") {
+        const node = treeNodes[index];
+        return node ? `tree:${node.fullPath}` : `tree-phantom-${index}`;
+      }
+      return sorted[index]?.name ?? `phantom-${index}`;
+    },
   });
 
   const onRowMouseDown = useCallback(
     (index: number, e: React.MouseEvent) => {
-      const name = sorted[index]?.name;
+      const name = viewMode === "tree" ? treeNodes[index]?.entry.name : sorted[index]?.name;
       if (!name) return;
 
       if (e.button === 2) {
@@ -297,7 +533,10 @@ export function SftpPane({
           const hi = Math.max(anchorIndex, index);
           setSelected((prev) => {
             const next = additive ? new Set(prev) : new Set<string>();
-            for (let i = lo; i <= hi; i++) next.add(sorted[i].name);
+            for (let i = lo; i <= hi; i++) {
+              const n = viewMode === "tree" ? treeNodes[i]?.entry.name : sorted[i]?.name;
+              if (n) next.add(n);
+            }
             return next;
           });
           return;
@@ -341,7 +580,10 @@ export function SftpPane({
           setSelected(names);
           setAnchorIndex(index);
         }
-        const dragged = sorted.filter(
+        const sourceList = viewMode === "tree"
+          ? treeNodes.map((n) => n.entry)
+          : sorted;
+        const dragged = sourceList.filter(
           (en) => en.name !== ".." && en.name !== "" && names.has(en.name),
         );
         if (dragged.length === 0) return;
@@ -357,7 +599,7 @@ export function SftpPane({
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
     },
-    [sorted, anchorIndex, selected, drag, makePaneRef],
+    [sorted, treeNodes, viewMode, anchorIndex, selected, drag, makePaneRef],
   );
 
   const onListMouseDown = useCallback(
@@ -439,10 +681,12 @@ export function SftpPane({
 
   const showEmpty = effectiveMode === "remote" && !connected;
 
-  const selectedEntries = useMemo(
-    () => sorted.filter((e) => e.name !== ".." && e.name !== "" && selected.has(e.name)),
-    [sorted, selected],
-  );
+  const selectedEntries = useMemo(() => {
+    const pool = viewMode === "tree"
+      ? treeNodes.map((n) => n.entry)
+      : sorted;
+    return pool.filter((e) => e.name !== ".." && e.name !== "" && selected.has(e.name));
+  }, [viewMode, treeNodes, sorted, selected]);
 
   // Inline edit commit handlers.
   const commitNewFolder = useCallback(
@@ -571,86 +815,179 @@ export function SftpPane({
             onToggleHidden={onToggleHidden}
             onNewFolder={() => setInlineEdit({ kind: "new-folder" })}
             onNewFile={() => setInlineEdit({ kind: "new-file" })}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
           />
 
-          <div className="flex h-6 shrink-0 items-center gap-2 border-b border-border/60 px-2 text-[11px] font-medium text-muted-foreground">
-            <SortHeader
-              column="name"
-              label="Name"
-              sort={sort}
-              onSort={(column) => setSort((current) => nextSftpSort(current, column))}
-              className="min-w-0 flex-1"
-            />
-            <SortHeader
-              column="size"
-              label="Size"
-              sort={sort}
-              onSort={(column) => setSort((current) => nextSftpSort(current, column))}
-              className="w-20 shrink-0"
-              align="right"
-            />
-            <SortHeader
-              column="mtime"
-              label="Modified"
-              sort={sort}
-              onSort={(column) => setSort((current) => nextSftpSort(current, column))}
-              className="w-28 shrink-0"
-              align="right"
-            />
-            <SortHeader
-              column="permissions"
-              label="Permissions"
-              sort={sort}
-              onSort={(column) => setSort((current) => nextSftpSort(current, column))}
-              className="w-24 shrink-0"
-              align="right"
-            />
-          </div>
+          {viewMode === "list" && (
+            <div className="flex h-6 shrink-0 items-center gap-2 overflow-hidden border-b border-border/60 px-2 text-[11px] font-medium text-muted-foreground">
+              {/* 16px spacer matches the file-icon column in rows */}
+              <div className="size-4 shrink-0" />
+              <SortHeader
+                column="name"
+                label="Name"
+                sort={sort}
+                onSort={(column) => setSort((current) => nextSftpSort(current, column))}
+                className="min-w-0 flex-1"
+              />
+              {(["size", "mtime", "permissions"] as const).map((col) => {
+                const labels = { size: "Size", mtime: "Modified", permissions: "Permissions" } as const;
+                return (
+                  <div
+                    key={col}
+                    className="relative shrink-0"
+                    style={{ width: `var(${COL_VAR[col]}, ${DEFAULT_COL_WIDTHS[col]}px)` }}
+                  >
+                    <ResizeHandle
+                      col={col}
+                      startWidth={colWidths[col]}
+                      containerRef={paneRootRef}
+                      onResize={handleResize}
+                    />
+                    <SortHeader
+                      column={col}
+                      label={labels[col]}
+                      sort={sort}
+                      onSort={(column) => setSort((current) => nextSftpSort(current, column))}
+                      className="w-full"
+                      align="right"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           <ContextMenu>
             <ContextMenuTrigger asChild>
               <div
                 ref={scrollRef}
-                onMouseDown={onListMouseDown}
+                onMouseDown={viewMode === "list" ? onListMouseDown : undefined}
                 className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]"
               >
-                <div
-                  style={{
-                    height: virtualizer.getTotalSize(),
-                    position: "relative",
-                    width: "100%",
-                  }}
-                >
-                  {marquee && (
-                    <div
-                      className="pointer-events-none absolute inset-x-0 z-10 bg-primary/15 ring-1 ring-inset ring-primary/40"
-                      style={{ top: marquee.top, height: marquee.height }}
-                    />
-                  )}
-                  {virtualizer.getVirtualItems().map((vr) => {
-                    const entry = sorted[vr.index];
-                    if (!entry) return null;
-                    const isPhantom = entry.name === "";
-                    const isRenaming =
-                      inlineEdit?.kind === "rename" &&
-                      inlineEdit.originalName === entry.name;
-                    return (
+                {viewMode === "list" ? (
+                  <div
+                    style={{
+                      height: virtualizer.getTotalSize(),
+                      position: "relative",
+                      width: "100%",
+                    }}
+                  >
+                    {marquee && (
                       <div
-                        key={vr.key}
-                        style={{
-                          position: "absolute",
-                          top: 0,
-                          left: 0,
-                          width: "100%",
-                          height: vr.size,
-                          transform: `translateY(${vr.start}px)`,
-                        }}
-                      >
+                        className="pointer-events-none absolute inset-x-0 z-10 bg-primary/15 ring-1 ring-inset ring-primary/40"
+                        style={{ top: marquee.top, height: marquee.height }}
+                      />
+                    )}
+                    {virtualizer.getVirtualItems().map((vr) => {
+                      const entry = sorted[vr.index];
+                      if (!entry) return null;
+                      const isPhantom = entry.name === "";
+                      const isRenaming =
+                        inlineEdit?.kind === "rename" &&
+                        inlineEdit.originalName === entry.name;
+                      return (
+                        <div
+                          key={vr.key}
+                          style={{
+                            position: "absolute",
+                            top: 0,
+                            left: 0,
+                            width: "100%",
+                            height: vr.size,
+                            transform: `translateY(${vr.start}px)`,
+                          }}
+                        >
+                          <SftpFileRow
+                            entry={entry}
+                            selected={selected.has(entry.name)}
+                            now={now}
+                            onMouseDown={(e) => onRowMouseDown(vr.index, e)}
+                            onDoubleClick={() => handleRowDoubleClick(entry)}
+                            editing={isPhantom || isRenaming}
+                            onCommitRename={
+                              isPhantom
+                                ? inlineEdit?.kind === "new-folder"
+                                  ? commitNewFolder
+                                  : commitNewFile
+                                : isRenaming
+                                  ? commitRename
+                                  : undefined
+                            }
+                            onCancelEdit={cancelEdit}
+                            viewMode="list"
+                            colWidths={colWidths}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : viewMode === "tree" ? (
+                  <div
+                    style={{
+                      height: virtualizer.getTotalSize(),
+                      position: "relative",
+                      width: "100%",
+                    }}
+                  >
+                    {virtualizer.getVirtualItems().map((vr) => {
+                      const node = treeNodes[vr.index];
+                      if (!node) return null;
+                      return (
+                        <div
+                          key={vr.key}
+                          style={{
+                            position: "absolute",
+                            top: 0,
+                            left: 0,
+                            width: "100%",
+                            height: vr.size,
+                            transform: `translateY(${vr.start}px)`,
+                          }}
+                        >
+                          <TreeRow
+                            node={node}
+                            selected={selected.has(node.entry.name)}
+                            expanded={expandedPaths.has(node.fullPath)}
+                            loading={loadingPaths.has(node.fullPath)}
+                            onMouseDown={(e) => onRowMouseDown(vr.index, e)}
+                            onDoubleClick={() => {
+                              if (node.entry.kind === "dir") {
+                                toggleExpand(node.fullPath, node.entry);
+                              } else {
+                                handleRowDoubleClick(node.entry);
+                              }
+                            }}
+                            onToggle={(e) => {
+                              e.stopPropagation();
+                              toggleExpand(node.fullPath, node.entry);
+                            }}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fill, minmax(76px, 1fr))",
+                      gap: "2px",
+                      padding: "6px",
+                    }}
+                  >
+                    {sorted.map((entry, index) => {
+                      const isPhantom = entry.name === "";
+                      const isRenaming =
+                        inlineEdit?.kind === "rename" &&
+                        inlineEdit.originalName === entry.name;
+                      return (
                         <SftpFileRow
+                          key={entry.name || `phantom-${index}`}
                           entry={entry}
                           selected={selected.has(entry.name)}
                           now={now}
-                          onMouseDown={(e) => onRowMouseDown(vr.index, e)}
+                          onMouseDown={(e) => onRowMouseDown(index, e)}
                           onDoubleClick={() => handleRowDoubleClick(entry)}
                           editing={isPhantom || isRenaming}
                           onCommitRename={
@@ -663,11 +1000,12 @@ export function SftpPane({
                                 : undefined
                           }
                           onCancelEdit={cancelEdit}
+                          viewMode="icons"
                         />
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+                )}
 
                 {remoteLoading && (
                   <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/60">
