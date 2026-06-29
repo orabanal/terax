@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
 import { firePendingReviewForSession } from "@/modules/agents/lib/review";
+import {
+  MODELS,
+  compatModelIdForEndpoint,
+  indexedLocalModelId,
+  type ProviderId,
+} from "@/modules/ai/config";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { onKeysChanged } from "@/modules/settings/store";
 import {
@@ -11,11 +17,58 @@ import { useAgentsStore } from "../store/agentsStore";
 import { useChatStore } from "../store/chatStore";
 import { useSnippetsStore } from "../store/snippetsStore";
 
+/** Pick the first available model id from configured providers.
+ *  Priority: cloud providers with keys > local providers > custom endpoints. */
+function pickFirstAvailableModel(
+  apiKeys: Record<string, string | null>,
+  prefs: {
+    lmstudioModelIds: string[];
+    mlxModelIds: string[];
+    ollamaModelIds: string[];
+    openrouterModelIds: string[];
+    customEndpoints: { id: string; baseURL: string; modelIds: string[] }[];
+  },
+): string | null {
+  // Cloud providers: first one with a key
+  const cloudOrder: ProviderId[] = [
+    "anthropic",
+    "openai",
+    "google",
+    "xai",
+    "deepseek",
+    "mistral",
+    "cerebras",
+    "groq",
+  ];
+  for (const pid of cloudOrder) {
+    if (apiKeys[pid]) {
+      const m = MODELS.find((x) => x.provider === pid);
+      if (m) return m.id;
+    }
+  }
+  // Local providers: first one with models configured
+  const locals: { provider: ProviderId; ids: string[] }[] = [
+    { provider: "lmstudio", ids: prefs.lmstudioModelIds },
+    { provider: "mlx", ids: prefs.mlxModelIds },
+    { provider: "ollama", ids: prefs.ollamaModelIds },
+    { provider: "openrouter", ids: prefs.openrouterModelIds },
+  ];
+  for (const { provider, ids } of locals) {
+    if (ids.length > 0) return indexedLocalModelId(provider, 0);
+  }
+  // Custom endpoints: first one with models
+  for (const ep of prefs.customEndpoints) {
+    if (ep.baseURL.trim() && ep.modelIds.length > 0)
+      return compatModelIdForEndpoint(ep.id, 0);
+  }
+  return null;
+}
+
 /**
  * Startup wiring for the AI subsystem: loads provider keys (and keeps them in
- * sync), hydrates the preference store and mirrors the default model, hydrates
- * chat/agents/snippets stores, and fires any pending review for the active
- * session. Returns the two derived flags the shell needs.
+ * sync), hydrates the preference store, auto-selects the first available
+ * model, hydrates chat/agents/snippets stores, and fires any pending review
+ * for the active session. Returns the two derived flags the shell needs.
  */
 export function useAiBootstrap(): {
   hasComposer: boolean;
@@ -82,17 +135,18 @@ export function useAiBootstrap(): {
     };
   }, [setApiKeys, setCustomEndpointKeys, prefsHydrated]);
 
-  // Hydrate the cross-window preference store and mirror the default model
-  // into chatStore so the dropdown reflects what the user picked in Settings.
+  // Hydrate the cross-window preference store and auto-select the first
+  // available model from configured providers.
   const initPrefs = usePreferencesStore((s) => s.init);
-  const prefDefaultModel = usePreferencesStore((s) => s.defaultModelId);
   useEffect(() => {
     void initPrefs();
   }, [initPrefs]);
   useEffect(() => {
     if (!prefsHydrated) return;
-    setSelectedModelId(prefDefaultModel);
-  }, [prefsHydrated, prefDefaultModel, setSelectedModelId]);
+    const state = usePreferencesStore.getState();
+    const modelId = pickFirstAvailableModel(apiKeys, state);
+    if (modelId) setSelectedModelId(modelId);
+  }, [prefsHydrated, apiKeys, setSelectedModelId]);
 
   useEffect(() => {
     void hydrateSessions();

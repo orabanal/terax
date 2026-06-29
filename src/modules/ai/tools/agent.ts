@@ -35,8 +35,11 @@ export function buildManagedAgentTools(ctx: ToolContext) {
             "The full, self-contained task prompt for the Claude Code agent.",
           ),
       }),
-      needsApproval: true,
+      needsApproval: () => ctx.getPermissionMode() !== "autonomous",
       execute: async ({ prompt }) => {
+        if (ctx.getPermissionMode() === "observer") {
+          return { error: "Agent spawning is blocked in observer mode. Switch to confirm or autonomous mode." };
+        }
         const sessionId = ctx.getSessionId();
         if (!sessionId) return { error: "no active chat session" };
         const store = useManagedAgentsStore.getState();
@@ -67,8 +70,11 @@ export function buildManagedAgentTools(ctx: ToolContext) {
             "One clear, self-contained instruction for the agent. No control characters.",
           ),
       }),
-      needsApproval: true,
+      needsApproval: () => ctx.getPermissionMode() !== "autonomous",
       execute: async ({ instruction }) => {
+        if (ctx.getPermissionMode() === "observer") {
+          return { error: "Agent communication is blocked in observer mode. Switch to confirm or autonomous mode." };
+        }
         const sessionId = ctx.getSessionId();
         const store = useManagedAgentsStore.getState();
         const managed = sessionId ? store.getBySessionId(sessionId) : undefined;

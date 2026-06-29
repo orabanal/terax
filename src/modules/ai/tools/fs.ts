@@ -140,8 +140,11 @@ export function buildFsTools(ctx: ToolContext) {
         path: z.string(),
         content: z.string(),
       }),
-      needsApproval: true,
+      needsApproval: () => ctx.getPermissionMode() !== "autonomous",
       execute: async ({ path, content }) => {
+        if (ctx.getPermissionMode() === "observer") {
+          return { error: "Writes are blocked in observer mode. Switch to confirm or autonomous mode." };
+        }
         const reqPath = resolvePath(path, ctx.getCwd());
         const safety = await checkWritableCanonical(reqPath, native.canonicalize);
         if (!safety.ok) return { error: safety.reason, path: reqPath };
@@ -187,8 +190,11 @@ export function buildFsTools(ctx: ToolContext) {
       inputSchema: z.object({
         path: z.string(),
       }),
-      needsApproval: true,
+      needsApproval: () => ctx.getPermissionMode() !== "autonomous",
       execute: async ({ path }) => {
+        if (ctx.getPermissionMode() === "observer") {
+          return { error: "Directory creation is blocked in observer mode. Switch to confirm or autonomous mode." };
+        }
         const reqPath = resolvePath(path, ctx.getCwd());
         const safety = await checkWritableCanonical(reqPath, native.canonicalize);
         if (!safety.ok) return { error: safety.reason, path: reqPath };

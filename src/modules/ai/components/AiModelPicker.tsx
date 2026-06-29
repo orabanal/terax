@@ -8,14 +8,27 @@ import {
 import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
+  AppleIcon,
   ArrowDown01Icon,
+  ChatGptIcon,
+  ClaudeIcon,
+  ComputerIcon,
   CpuIcon,
+  DeepseekIcon,
+  FlashIcon,
+  GlobeIcon,
+  GoogleGeminiIcon,
+  Grok02Icon,
+  MistralIcon,
+  PlugIcon,
+  ServerStack01Icon,
   Tick01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { memo, useMemo } from "react";
 import {
   MODELS,
+  PROVIDERS,
   compatModelIdForEndpoint,
   getCompatModelInfo,
   indexedLocalModelId,
@@ -26,7 +39,22 @@ import {
 } from "../config";
 import { useChatStore } from "../store/chatStore";
 
-/** Provider ids that use the local model id scheme (user-supplied model names). */
+const PROVIDER_ICON: Record<ProviderId, typeof CpuIcon> = {
+  openai: ChatGptIcon,
+  anthropic: ClaudeIcon,
+  google: GoogleGeminiIcon,
+  xai: Grok02Icon,
+  cerebras: CpuIcon,
+  groq: FlashIcon,
+  deepseek: DeepseekIcon,
+  mistral: MistralIcon,
+  openrouter: GlobeIcon,
+  "openai-compatible": PlugIcon,
+  lmstudio: ComputerIcon,
+  mlx: AppleIcon,
+  ollama: ServerStack01Icon,
+};
+
 const LOCAL_PROVIDER_IDS = [
   "lmstudio",
   "mlx",
@@ -62,75 +90,73 @@ export const AiModelPicker = memo(function AiModelPicker({
     [lmstudioModelIds, mlxModelIds, ollamaModelIds, openrouterModelIds],
   );
 
-  const configuredProviders = useMemo((): Set<ProviderId> => {
-    const set = new Set<ProviderId>();
-    for (const m of MODELS) {
-      const pid = m.provider;
-      if (pid === "openai-compatible") continue;
-      if (set.has(pid)) continue;
-      if (providerNeedsKey(pid)) {
-        if (apiKeys[pid]) set.add(pid);
-      } else if (pid === "openrouter") {
-        if (apiKeys.openrouter || openrouterModelIds.length > 0) set.add(pid);
-      } else if (pid === "lmstudio") {
-        if (lmstudioModelIds.length > 0) set.add(pid);
-      } else if (pid === "mlx") {
-        if (mlxModelIds.length > 0) set.add(pid);
-      } else if (pid === "ollama") {
-        if (ollamaModelIds.length > 0) set.add(pid);
-      }
-    }
-    return set;
-  }, [apiKeys, lmstudioModelIds, mlxModelIds, ollamaModelIds, openrouterModelIds]);
+  // Grouped models: provider label -> ModelInfo[]
+  const groups = useMemo((): { label: string; icon: typeof CpuIcon; models: ModelInfo[] }[] => {
+    const result: { label: string; icon: typeof CpuIcon; models: ModelInfo[] }[] = [];
 
-  const availableModels = useMemo((): ModelInfo[] => {
-    const result: ModelInfo[] = [];
-    // Cloud provider models from the hardcoded registry
-    for (const m of MODELS) {
-      if (m.provider === "openai-compatible") continue;
-      if (
-        configuredProviders.has(m.provider) &&
-        !(LOCAL_PROVIDER_IDS as readonly string[]).includes(m.provider)
-      ) {
-        result.push(m);
+    // Cloud providers
+    for (const p of PROVIDERS) {
+      if (p.id === "openai-compatible") continue;
+      if ((LOCAL_PROVIDER_IDS as readonly string[]).includes(p.id)) continue;
+      const hasKey = providerNeedsKey(p.id) ? !!apiKeys[p.id] : true;
+      if (!hasKey) continue;
+      const models = MODELS.filter((m) => m.provider === p.id);
+      if (models.length > 0) {
+        result.push({ label: p.label, icon: PROVIDER_ICON[p.id], models });
       }
     }
-    // Local provider models (indexed)
+
+    // Local providers
     for (const pid of LOCAL_PROVIDER_IDS) {
-      if (!configuredProviders.has(pid as ProviderId)) continue;
       const ids = localModelIds[pid as LocalProviderId] ?? [];
-      for (let i = 0; i < ids.length; i++) {
-        result.push({
-          id: indexedLocalModelId(pid, i),
-          provider: pid,
-          label: ids[i],
-          hint: "Local",
-          description: `Local model on ${pid}`,
-          capabilities: { intelligence: 3, speed: 3, cost: 5 },
-        });
-      }
+      if (ids.length === 0) continue;
+      const p = PROVIDERS.find((x) => x.id === pid);
+      const models: ModelInfo[] = ids.map((id, i) => ({
+        id: indexedLocalModelId(pid, i),
+        provider: pid as ProviderId,
+        label: id,
+        hint: "Local",
+        description: `Local model on ${p?.label ?? pid}`,
+        capabilities: { intelligence: 3, speed: 3, cost: 5 },
+      }));
+      result.push({ label: p?.label ?? pid, icon: PROVIDER_ICON[pid as ProviderId], models });
     }
-    // Custom endpoint models (indexed)
+
+    // Custom endpoints
     for (const ep of customEndpoints) {
-      for (let i = 0; i < (ep.modelIds?.length ?? 0); i++) {
-        result.push(
-          getCompatModelInfo(
-            compatModelIdForEndpoint(ep.id, i),
-            customEndpoints,
-          ),
+      if (!ep.modelIds?.length) continue;
+      const models: ModelInfo[] = [];
+      for (let i = 0; i < ep.modelIds.length; i++) {
+        models.push(
+          getCompatModelInfo(compatModelIdForEndpoint(ep.id, i), customEndpoints),
         );
       }
+      result.push({
+        label: ep.name || "Custom endpoint",
+        icon: PROVIDER_ICON["openai-compatible"],
+        models,
+      });
     }
-    return result;
-  }, [configuredProviders, customEndpoints, localModelIds]);
 
-  // Resolve display label for the selected model.
+    return result;
+  }, [apiKeys, customEndpoints, localModelIds]);
+
+  const flatModels = useMemo(() => groups.flatMap((g) => g.models), [groups]);
+
   const current = useMemo(
     () => resolveModel(selectedModelId, customEndpoints, localModelIds),
     [selectedModelId, customEndpoints, localModelIds],
   );
 
-  const currentInList = availableModels.some((m) => m.id === selectedModelId);
+  // Find provider label for the selected model.
+  const currentProviderLabel = useMemo(() => {
+    for (const g of groups) {
+      if (g.models.some((m) => m.id === selectedModelId)) return g.label;
+    }
+    return null;
+  }, [groups, selectedModelId]);
+
+  const currentInList = flatModels.some((m) => m.id === selectedModelId);
 
   return (
     <DropdownMenu>
@@ -140,9 +166,15 @@ export const AiModelPicker = memo(function AiModelPicker({
           variant="ghost"
           size="xs"
           className="inline-flex h-6 items-center gap-1 rounded-full px-1.5 text-[10.5px] text-foreground/72 hover:bg-muted/24 transition-colors"
-          title={`Model: ${current.label}`}
+          title={`${currentProviderLabel ?? ""} / ${current.label}`}
         >
           <HugeiconsIcon icon={CpuIcon} size={11} strokeWidth={1.75} className="text-muted-foreground/64" />
+          {currentProviderLabel && (
+            <>
+              <span className="max-w-[64px] truncate text-muted-foreground/50">{currentProviderLabel}</span>
+              <span className="text-muted-foreground/30">/</span>
+            </>
+          )}
           <span className="max-w-[82px] truncate">{current.label}</span>
           <HugeiconsIcon
             icon={ArrowDown01Icon}
@@ -154,7 +186,7 @@ export const AiModelPicker = memo(function AiModelPicker({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="start"
-        className="max-h-72 w-56 overflow-y-auto"
+        className="max-h-80 w-64 overflow-y-auto py-1"
       >
         {!currentInList && (
           <DropdownMenuItem
@@ -162,9 +194,6 @@ export const AiModelPicker = memo(function AiModelPicker({
             className="flex items-center gap-2 text-[11px] bg-accent/40"
           >
             <span className="min-w-0 flex-1 truncate">{current.label}</span>
-            <span className="shrink-0 text-[10px] text-muted-foreground">
-              {current.hint}
-            </span>
             <HugeiconsIcon
               icon={Tick01Icon}
               size={12}
@@ -173,28 +202,40 @@ export const AiModelPicker = memo(function AiModelPicker({
             />
           </DropdownMenuItem>
         )}
-        {availableModels.map((m) => (
-          <DropdownMenuItem
-            key={m.id}
-            onSelect={() => onSelect(m.id)}
-            className={cn(
-              "flex items-center gap-2 text-[11px]",
-              m.id === selectedModelId && "bg-accent/40",
-            )}
-          >
-            <span className="min-w-0 flex-1 truncate">{m.label}</span>
-            <span className="shrink-0 text-[10px] text-muted-foreground">
-              {m.hint}
-            </span>
-            {m.id === selectedModelId ? (
+        {groups.map((g) => (
+          <div key={g.label}>
+            <div className="flex items-center gap-1.5 px-2.5 pt-2 pb-1">
               <HugeiconsIcon
-                icon={Tick01Icon}
+                icon={g.icon}
                 size={12}
-                strokeWidth={2}
-                className="shrink-0 text-foreground"
+                strokeWidth={1.5}
+                className="shrink-0 text-muted-foreground/60"
               />
-            ) : null}
-          </DropdownMenuItem>
+              <span className="text-[10px] font-medium tracking-wide text-muted-foreground/80 uppercase">
+                {g.label}
+              </span>
+            </div>
+            {g.models.map((m) => (
+              <DropdownMenuItem
+                key={m.id}
+                onSelect={() => onSelect(m.id)}
+                className={cn(
+                  "flex items-center gap-2 pl-7 text-[11px]",
+                  m.id === selectedModelId && "bg-accent/40",
+                )}
+              >
+                <span className="min-w-0 flex-1 truncate">{m.label}</span>
+                {m.id === selectedModelId ? (
+                  <HugeiconsIcon
+                    icon={Tick01Icon}
+                    size={12}
+                    strokeWidth={2}
+                    className="shrink-0 text-foreground"
+                  />
+                ) : null}
+              </DropdownMenuItem>
+            ))}
+          </div>
         ))}
       </DropdownMenuContent>
     </DropdownMenu>

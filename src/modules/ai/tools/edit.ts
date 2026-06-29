@@ -130,8 +130,11 @@ export function buildEditTools(ctx: ToolContext) {
         new_string: z.string().describe("Replacement substring."),
         replace_all: z.boolean().optional(),
       }),
-      needsApproval: true,
+      needsApproval: () => ctx.getPermissionMode() !== "autonomous",
       execute: async ({ path, old_string, new_string, replace_all }) => {
+        if (ctx.getPermissionMode() === "observer") {
+          return { error: "Edits are blocked in observer mode. Switch to confirm or autonomous mode." };
+        }
         const reqPath = resolvePath(path, ctx.getCwd());
         const safety = await checkWritableCanonical(reqPath, native.canonicalize);
         if (!safety.ok) return { error: safety.reason, path: reqPath };
@@ -167,8 +170,11 @@ export function buildEditTools(ctx: ToolContext) {
           )
           .min(1),
       }),
-      needsApproval: true,
+      needsApproval: () => ctx.getPermissionMode() !== "autonomous",
       execute: async ({ path, edits }) => {
+        if (ctx.getPermissionMode() === "observer") {
+          return { error: "Edits are blocked in observer mode. Switch to confirm or autonomous mode." };
+        }
         const reqPath = resolvePath(path, ctx.getCwd());
         const safety = await checkWritableCanonical(reqPath, native.canonicalize);
         if (!safety.ok) return { error: safety.reason, path: reqPath };

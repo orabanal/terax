@@ -14,12 +14,14 @@ import {
   Add01Icon,
   AddCircleIcon,
   ArrowDown01Icon,
+  BrainIcon,
   Cancel01Icon,
   ClockIcon,
   Delete02Icon,
   EyeIcon,
   File01Icon,
   Image01Icon,
+  Shield01Icon,
   TerminalIcon,
   TimeScheduleIcon,
   ZapIcon,
@@ -763,7 +765,7 @@ const PERMISSION_META: Record<
   },
   confirm: {
     label: "Confirm",
-    icon: ArrowDown01Icon,
+    icon: Shield01Icon,
     className: "text-amber-400/70",
     description: "Approve each mutation before it runs.",
   },
@@ -836,7 +838,7 @@ const ReasoningChip = memo(function ReasoningChip({
       )}
       title={meta.description}
     >
-      <HugeiconsIcon icon={ZapIcon} size={11} strokeWidth={1.75} />
+      <HugeiconsIcon icon={BrainIcon} size={11} strokeWidth={1.75} />
       <span className="max-w-[72px] truncate">{meta.label}</span>
     </button>
   );
