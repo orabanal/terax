@@ -4,6 +4,9 @@ import { native } from "../lib/native";
 import { checkReadableCanonical } from "../lib/security";
 import { resolvePath, type ToolContext } from "./context";
 
+const SSH_SEARCH_ERROR =
+  "Search tools (grep, glob) operate on the LOCAL filesystem and are not available in SSH sessions. Use bash_run with `grep -r`, `find`, or `ls` instead.";
+
 function resolveRoot(
   rawRoot: string | undefined,
   ctx: ToolContext,
@@ -36,7 +39,7 @@ export function buildSearchTools(ctx: ToolContext) {
   return {
     grep: tool({
       description:
-        "Search file contents in the workspace using a regular expression. Honors .gitignore. Returns up to `max_results` (default 30, max 500) `{path, line, text}` hits, with a `truncated` flag when more existed. Long match lines are clipped to 160 chars. Use this for code navigation — do NOT brute-force read_file across the tree. Narrow with `glob` when you can; raise `max_results` only if the first batch truly isn't enough.",
+        "Search file contents in the LOCAL workspace using a regular expression. Honors .gitignore. Returns up to `max_results` (default 30, max 500) `{path, line, text}` hits, with a `truncated` flag when more existed. Long match lines are clipped to 160 chars. Use this for code navigation — do NOT brute-force read_file across the tree. Narrow with `glob` when you can; raise `max_results` only if the first batch truly isn't enough. NOT available in SSH sessions — use bash_run with `grep -r` instead.",
       inputSchema: z.object({
         pattern: z
           .string()
@@ -65,6 +68,7 @@ export function buildSearchTools(ctx: ToolContext) {
         case_insensitive,
         max_results,
       }) => {
+        if (ctx.getSshSessionId() != null) return { error: SSH_SEARCH_ERROR };
         const r = resolveRoot(root, ctx);
         if (!r.ok) return { error: r.error };
         const safety = await checkReadableCanonical(r.path, native.canonicalize);
@@ -98,13 +102,14 @@ export function buildSearchTools(ctx: ToolContext) {
 
     glob: tool({
       description:
-        "Find files by path pattern (gitignore-aware). Use over `list_directory` when you want all matches recursively. Patterns use globset syntax: `**/*.ts`, `src/**/test_*.py`. Returns up to `max_results` matches.",
+        "Find files by path pattern on the LOCAL filesystem (gitignore-aware). Use over `list_directory` when you want all matches recursively. Patterns use globset syntax: `**/*.ts`, `src/**/test_*.py`. Returns up to `max_results` matches. NOT available in SSH sessions — use bash_run with `find` instead.",
       inputSchema: z.object({
         pattern: z.string().describe("Glob pattern over relative paths."),
         root: z.string().optional(),
         max_results: z.number().int().min(1).max(2000).optional(),
       }),
       execute: async ({ pattern, root, max_results }) => {
+        if (ctx.getSshSessionId() != null) return { error: SSH_SEARCH_ERROR };
         const r = resolveRoot(root, ctx);
         if (!r.ok) return { error: r.error };
         const safety = await checkReadableCanonical(r.path, native.canonicalize);

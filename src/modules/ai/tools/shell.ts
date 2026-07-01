@@ -32,7 +32,7 @@ export function buildShellTools(ctx: ToolContext) {
   return {
     bash_run: tool({
       description:
-        "Run a foreground shell command in this session's persistent agent shell. cwd persists across calls (so `cd foo` then `bash_run pwd` works). Use for short-lived commands (lint, test, search, build). For long-running or daemon processes (dev servers, watch tasks), use `bash_background`. NEVER invoke interactive tools (vim, less, top) — they will hang. Asks for user approval.",
+        "Run a foreground shell command. In local terminals this runs in a persistent agent shell (cwd persists across calls). In SSH sessions this automatically runs on the REMOTE server via ssh_exec — you do NOT need to call ssh_run separately. Use for short-lived commands (ls, cat, grep, lint, test, build). For long-running or daemon processes (dev servers, watch tasks), use `bash_background`. NEVER invoke interactive tools (vim, less, top) — they will hang. Asks for user approval.",
       inputSchema: z.object({
         command: z.string(),
         timeout_secs: z.number().int().min(1).max(300).optional(),
@@ -48,6 +48,24 @@ export function buildShellTools(ctx: ToolContext) {
         }
         const sid = ctx.getSessionId();
         if (!sid) return { error: "no active chat session" };
+
+        // SSH auto-routing: when scoped to an SSH terminal, run remotely
+        const sshId = ctx.getSshSessionId();
+        if (sshId != null) {
+          try {
+            const r = await native.sshExec(sshId, command);
+            return {
+              command,
+              stdout: r.stdout,
+              stderr: r.stderr,
+              exit_code: r.exitCode,
+            };
+          } catch (e) {
+            return { error: String(e) };
+          }
+        }
+
+        // Local execution
         const slot = reserveSessionSlot(sid);
         try {
           await slot.ready;
@@ -78,7 +96,7 @@ export function buildShellTools(ctx: ToolContext) {
 
     ssh_run: tool({
       description:
-        "Run a command on the REMOTE SSH server via a separate exec channel. The command runs silently on the server — it is NOT visible in the user's terminal. Use this instead of bash_run when the session is connected via SSH. Returns stdout, stderr, and exit code. Asks for user approval.",
+        "Run a command on the REMOTE SSH server via a separate exec channel. The command runs silently on the server — it is NOT visible in the user's terminal. Use this ONLY when you need to explicitly run on SSH without the auto-routing of bash_run. Returns stdout, stderr, and exit code. Asks for user approval.",
       inputSchema: z.object({
         command: z.string(),
       }),
@@ -93,7 +111,7 @@ export function buildShellTools(ctx: ToolContext) {
         }
         const sshId = ctx.getSshSessionId();
         if (sshId == null) {
-          return { error: "No SSH session available. Use bash_run for local terminals." };
+          return { error: "No SSH session available. This terminal is local — use bash_run instead." };
         }
         try {
           const r = await native.sshExec(sshId, command);
@@ -111,7 +129,7 @@ export function buildShellTools(ctx: ToolContext) {
 
     bash_background: tool({
       description:
-        "Spawn a long-running background process (e.g. `pnpm dev`, `cargo watch`, log tailers). Returns a handle; use `bash_logs` to read its output and `bash_kill` to stop it. Output is captured into a 4MB ring buffer. Asks for user approval.",
+        "Spawn a long-running background process (e.g. `pnpm dev`, `cargo watch`, log tailers). Returns a handle; use `bash_logs` to read its output and `bash_kill` to stop it. Output is captured into a 4MB ring buffer. Only available for LOCAL terminals — not supported in SSH sessions. Asks for user approval.",
       inputSchema: z.object({
         command: z.string(),
         cwd: z.string().nullable().optional(),
@@ -124,6 +142,13 @@ export function buildShellTools(ctx: ToolContext) {
         if (!blocklist.ok) return { error: blocklist.reason };
         if (ctx.getPermissionMode() === "observer") {
           return { error: "Commands are blocked in observer mode. Switch to confirm or autonomous mode." };
+        }
+        // SSH guard: background processes with ring-buffer capture are not supported remotely
+        const sshId = ctx.getSshSessionId();
+        if (sshId != null) {
+          return {
+            error: "bash_background is not supported in SSH sessions. Use ssh_run for remote commands, or bash_run for short-lived remote commands.",
+          };
         }
         const effectiveCwd = cwd ?? ctx.getCwd();
         try {

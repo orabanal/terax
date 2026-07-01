@@ -17,11 +17,14 @@ function djb2(s: string): number {
   return h >>> 0;
 }
 
+const SSH_FS_ERROR =
+  "Filesystem tools (read_file, list_directory, write_file, create_directory) operate on the LOCAL machine and are not available in SSH sessions. Use bash_run with remote commands instead (e.g. `cat <path>`, `ls <dir>`, `echo '...' > <path>`, `mkdir -p <dir>`).";
+
 export function buildFsTools(ctx: ToolContext) {
   return {
     read_file: tool({
       description:
-        "Read a UTF-8 text file. Defaults to the first 2000 lines (capped at 25KB). Pass `offset`/`limit` for line-based windowing of large files. Refuses binary, oversized, or sensitive files (.env, keys, credentials). If you call this on the same path twice in a session without edits in between, the second call returns `unchanged: true` instead of re-emitting the content — re-read the prior tool result.",
+        "Read a UTF-8 text file from the LOCAL filesystem. Defaults to the first 2000 lines (capped at 25KB). Pass `offset`/`limit` for line-based windowing of large files. Refuses binary, oversized, or sensitive files (.env, keys, credentials). If you call this on the same path twice in a session without edits in between, the second call returns `unchanged: true` instead of re-emitting the content — re-read the prior tool result. NOT available in SSH sessions — use bash_run with `cat` instead.",
       inputSchema: z.object({
         path: z
           .string()
@@ -41,6 +44,7 @@ export function buildFsTools(ctx: ToolContext) {
           .describe("Max lines to return. Default 2000."),
       }),
       execute: async ({ path, offset, limit }) => {
+        if (ctx.getSshSessionId() != null) return { error: SSH_FS_ERROR };
         const reqPath = resolvePath(path, ctx.getCwd());
         const safety = await checkReadableCanonical(reqPath, native.canonicalize);
         if (!safety.ok) return { error: safety.reason, path: reqPath };
@@ -110,13 +114,14 @@ export function buildFsTools(ctx: ToolContext) {
 
     list_directory: tool({
       description:
-        "List immediate entries (files + directories) in a directory. Hidden entries are omitted.",
+        "List immediate entries (files + directories) in a LOCAL directory. Hidden entries are omitted. NOT available in SSH sessions — use bash_run with `ls` instead.",
       inputSchema: z.object({
         path: z
           .string()
           .describe("Absolute path, or relative to the active terminal cwd."),
       }),
       execute: async ({ path }) => {
+        if (ctx.getSshSessionId() != null) return { error: SSH_FS_ERROR };
         const reqPath = resolvePath(path, ctx.getCwd());
         const safety = await checkReadableCanonical(reqPath, native.canonicalize);
         if (!safety.ok) return { error: safety.reason, path: reqPath };
@@ -135,13 +140,14 @@ export function buildFsTools(ctx: ToolContext) {
 
     write_file: tool({
       description:
-        "Create or overwrite a file with the given content. Always asks the user before running. Prefer `edit` / `multi_edit` for in-place changes — only use `write_file` for creating a brand-new file or fully replacing a tiny one.",
+        "Create or overwrite a LOCAL file with the given content. Always asks the user before running. Prefer `edit` / `multi_edit` for in-place changes — only use `write_file` for creating a brand-new file or fully replacing a tiny one. NOT available in SSH sessions — use bash_run with `echo` or `cat >` instead.",
       inputSchema: z.object({
         path: z.string(),
         content: z.string(),
       }),
       needsApproval: () => ctx.getPermissionMode() !== "autonomous",
       execute: async ({ path, content }) => {
+        if (ctx.getSshSessionId() != null) return { error: SSH_FS_ERROR };
         if (ctx.getPermissionMode() === "observer") {
           return { error: "Writes are blocked in observer mode. Switch to confirm or autonomous mode." };
         }
@@ -186,12 +192,13 @@ export function buildFsTools(ctx: ToolContext) {
 
     create_directory: tool({
       description:
-        "Create a directory (and any missing parents). Always asks the user before running.",
+        "Create a LOCAL directory (and any missing parents). Always asks the user before running. NOT available in SSH sessions — use bash_run with `mkdir -p` instead.",
       inputSchema: z.object({
         path: z.string(),
       }),
       needsApproval: () => ctx.getPermissionMode() !== "autonomous",
       execute: async ({ path }) => {
+        if (ctx.getSshSessionId() != null) return { error: SSH_FS_ERROR };
         if (ctx.getPermissionMode() === "observer") {
           return { error: "Directory creation is blocked in observer mode. Switch to confirm or autonomous mode." };
         }

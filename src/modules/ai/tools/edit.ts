@@ -5,6 +5,9 @@ import { checkWritableCanonical } from "../lib/security";
 import { newQueuedEditId, usePlanStore } from "../store/planStore";
 import { resolvePath, type ToolContext } from "./context";
 
+const SSH_EDIT_ERROR =
+  "Edit tools (edit, multi_edit) operate on the LOCAL filesystem and are not available in SSH sessions. Use bash_run with `sed`, `awk`, or heredoc redirection instead (e.g. `bash_run` with `sed -i 's/old/new/' <path>`).";
+
 type EditResult =
   | { ok: true; replacements: number; bytesWritten: number; path: string }
   | { error: string; path: string };
@@ -121,7 +124,7 @@ export function buildEditTools(ctx: ToolContext) {
   return {
     edit: tool({
       description:
-        "Replace an exact string in a file. Requires read_file on this path first in the current session — this prevents blind edits. `old_string` must be unique in the file unless `replace_all: true`. Asks for user approval before writing.",
+        "Replace an exact string in a LOCAL file. Requires read_file on this path first in the current session — this prevents blind edits. `old_string` must be unique in the file unless `replace_all: true`. Asks for user approval before writing. NOT available in SSH sessions — use bash_run with `sed` instead.",
       inputSchema: z.object({
         path: z.string(),
         old_string: z
@@ -132,6 +135,7 @@ export function buildEditTools(ctx: ToolContext) {
       }),
       needsApproval: () => ctx.getPermissionMode() !== "autonomous",
       execute: async ({ path, old_string, new_string, replace_all }) => {
+        if (ctx.getSshSessionId() != null) return { error: SSH_EDIT_ERROR };
         if (ctx.getPermissionMode() === "observer") {
           return { error: "Edits are blocked in observer mode. Switch to confirm or autonomous mode." };
         }
@@ -157,7 +161,7 @@ export function buildEditTools(ctx: ToolContext) {
 
     multi_edit: tool({
       description:
-        "Apply several exact-string replacements to a single file atomically. Each edit is applied in order to the running buffer; if any edit's old_string is missing or non-unique, the whole batch aborts before writing. Requires prior read_file on the path. Asks for user approval before writing.",
+        "Apply several exact-string replacements to a single LOCAL file atomically. Each edit is applied in order to the running buffer; if any edit's old_string is missing or non-unique, the whole batch aborts before writing. Requires prior read_file on the path. Asks for user approval before writing. NOT available in SSH sessions — use bash_run with `sed` instead.",
       inputSchema: z.object({
         path: z.string(),
         edits: z
@@ -172,6 +176,7 @@ export function buildEditTools(ctx: ToolContext) {
       }),
       needsApproval: () => ctx.getPermissionMode() !== "autonomous",
       execute: async ({ path, edits }) => {
+        if (ctx.getSshSessionId() != null) return { error: SSH_EDIT_ERROR };
         if (ctx.getPermissionMode() === "observer") {
           return { error: "Edits are blocked in observer mode. Switch to confirm or autonomous mode." };
         }

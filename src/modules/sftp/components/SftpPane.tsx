@@ -1106,6 +1106,17 @@ export function SftpPane({
               </ContextMenuItem>
               <ContextMenuSeparator />
               <ContextMenuItem
+                disabled={selectedEntries.length === 0}
+                onClick={() => {
+                  const paths = selectedEntries.map((e) =>
+                    path === "/" ? `/${e.name}` : `${path}/${e.name}`,
+                  );
+                  void navigator.clipboard.writeText(paths.join("\n"));
+                }}
+              >
+                Copy path
+              </ContextMenuItem>
+              <ContextMenuItem
                 disabled={selectedEntries.length !== 1 || effectiveMode !== "local"}
                 onClick={handleReveal}
               >
