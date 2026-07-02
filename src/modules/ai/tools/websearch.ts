@@ -47,11 +47,18 @@ function buildZhipuRequest(query: string, _maxResults: number, apiKey: string) {
 }
 
 function buildSearxngRequest(query: string, _maxResults: number, host: string) {
-  const url = new URL("/search", host);
+  const base = host.endsWith("/") ? host : `${host}/`;
+  const url = new URL("search", base);
   url.searchParams.set("q", query);
   url.searchParams.set("format", "json");
   url.searchParams.set("pageno", "1");
-  return { url: url.toString(), body: undefined as string | undefined, headers: {} as Record<string, string> };
+  return {
+    url: url.toString(),
+    body: undefined as string | undefined,
+    headers: {
+      "Accept": "application/json",
+    } as Record<string, string>,
+  };
 }
 
 type SearchResult = { title: string; url: string; snippet: string };
@@ -141,6 +148,7 @@ async function runSearch(
     const r = buildSearxngRequest(query, maxResults, h);
     url = r.url;
     body = r.body;
+    extraHeaders = r.headers;
   } else {
     throw new Error(`Unknown web search provider: ${String(provider)}`);
   }
@@ -160,7 +168,8 @@ async function runSearch(
   }
 
   const json = await res.json();
-  return parseResults(provider, json);
+  const results = await parseResults(provider, json);
+  return results.slice(0, maxResults);
 }
 
 export function buildWebSearchTools(getConfig: () => WebSearchConfig | null): Record<string, unknown> {
