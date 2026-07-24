@@ -282,6 +282,13 @@ export function TabBar({
     return () => cancelAnimationFrame(raf);
   }, [tabs.length, activeId, updateScrollState]);
 
+  const scrollTabs = useCallback((direction: "left" | "right") => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const amount = el.clientWidth * 0.5;
+    el.scrollBy({ left: direction === "left" ? -amount : amount, behavior: "smooth" });
+  }, []);
+
   // Keep the active tab visible after selection / open.
   useEffect(() => {
     const el = scrollRef.current;
@@ -319,10 +326,28 @@ export function TabBar({
       )}
       <div className="relative min-w-0 shrink">
         {canScrollLeft && (
-          <div className="pointer-events-none absolute left-0 top-0 bottom-0 z-10 w-8 bg-gradient-to-r from-background to-transparent" />
+          <button
+            type="button"
+            onClick={() => scrollTabs("left")}
+            className="absolute left-0 top-0 bottom-0 z-10 flex w-6 items-center justify-center bg-gradient-to-r from-background/90 to-transparent text-muted-foreground hover:text-foreground transition-colors"
+            aria-label="Scroll tabs left"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M8 2L4 6L8 10" />
+            </svg>
+          </button>
         )}
         {canScrollRight && (
-          <div className="pointer-events-none absolute right-0 top-0 bottom-0 z-10 w-8 bg-gradient-to-l from-background to-transparent" />
+          <button
+            type="button"
+            onClick={() => scrollTabs("right")}
+            className="absolute right-0 top-0 bottom-0 z-10 flex w-6 items-center justify-center bg-gradient-to-l from-background/90 to-transparent text-muted-foreground hover:text-foreground transition-colors"
+            aria-label="Scroll tabs right"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 2L8 6L4 10" />
+            </svg>
+          </button>
         )}
       <div
         ref={scrollRef}
