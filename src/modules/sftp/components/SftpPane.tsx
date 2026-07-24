@@ -12,6 +12,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { fileIconUrl, folderIconUrl } from "@/modules/explorer/lib/iconResolver";
 import {
   DEFAULT_SFTP_SORT,
@@ -45,6 +46,10 @@ const PARENT_ENTRY: SftpEntry = {
   size: 0,
   mtime: 0,
 };
+
+function describeError(e: unknown): string {
+  return typeof e === "string" ? e : String(e);
+}
 
 export type SftpPaneMode = "local" | "remote";
 
@@ -99,6 +104,10 @@ type Props = {
   editRemoteFile?: (sessionId: number, remotePath: string) => Promise<void>;
   /** Opens a remote file with the OS default application. */
   openRemoteFile?: (sessionId: number, remotePath: string) => Promise<void>;
+  /** Downloads a remote file to temp and opens the native "open with" app picker. */
+  openRemoteFileWith?: (sessionId: number, remotePath: string) => Promise<void>;
+  /** Opens a local path as a Terax editor tab. */
+  onOpenFile?: (path: string) => void;
   hosts?: SshHost[];
   onHostSelect?: (host: SshHost) => void;
   onLocal?: () => void;
@@ -290,6 +299,8 @@ export function SftpPane({
   sessionId,
   editRemoteFile,
   openRemoteFile,
+  openRemoteFileWith,
+  onOpenFile,
   hosts,
   onHostSelect,
   onLocal,
@@ -306,6 +317,9 @@ export function SftpPane({
   const [marquee, setMarquee] = useState<{ top: number; height: number } | null>(
     null,
   );
+  const [iconMarquee, setIconMarquee] = useState<
+    { left: number; top: number; width: number; height: number } | null
+  >(null);
   const [inlineEdit, setInlineEdit] = useState<InlineEditState>(null);
   const [modal, setModal] = useState<ModalDialogState>({ kind: "none" });
   const [remoteLoading, setRemoteLoading] = useState(false);
@@ -647,6 +661,72 @@ export function SftpPane({
     [selected, sorted],
   );
 
+  // Icon mode has no fixed row height or single column, so unlike
+  // onListMouseDown (which derives row indices from a Y offset), this hit-tests
+  // real cell rects against the drag box on every move.
+  const onIconMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.button !== 0) return;
+      if ((e.target as HTMLElement).closest("[data-row-name]")) return;
+      const el = scrollRef.current;
+      if (!el) return;
+
+      const rect = el.getBoundingClientRect();
+      const toContent = (clientX: number, clientY: number) => ({
+        x: clientX - rect.left + el.scrollLeft,
+        y: clientY - rect.top + el.scrollTop,
+      });
+      const start = toContent(e.clientX, e.clientY);
+      const additive = e.metaKey || e.ctrlKey;
+      const base = additive ? new Set(selected) : new Set<string>();
+      let moved = false;
+
+      const onMove = (ev: MouseEvent) => {
+        const cur = toContent(ev.clientX, ev.clientY);
+        if (!moved && Math.hypot(cur.x - start.x, cur.y - start.y) < MARQUEE_THRESHOLD) {
+          return;
+        }
+        moved = true;
+        const left = Math.min(start.x, cur.x);
+        const top = Math.min(start.y, cur.y);
+        const width = Math.abs(cur.x - start.x);
+        const height = Math.abs(cur.y - start.y);
+        setIconMarquee({ left, top, width, height });
+
+        const boxRight = left + width;
+        const boxBottom = top + height;
+        const next = new Set(base);
+        for (const cell of el.querySelectorAll<HTMLElement>("[data-row-name]")) {
+          const name = cell.getAttribute("data-row-name");
+          if (!name) continue;
+          const cr = cell.getBoundingClientRect();
+          const itemLeft = cr.left - rect.left + el.scrollLeft;
+          const itemTop = cr.top - rect.top + el.scrollTop;
+          const itemRight = itemLeft + cr.width;
+          const itemBottom = itemTop + cr.height;
+          if (left < itemRight && boxRight > itemLeft && top < itemBottom && boxBottom > itemTop) {
+            next.add(name);
+          }
+        }
+        setSelected(next);
+      };
+
+      const onUp = () => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+        setIconMarquee(null);
+        if (!moved && !additive) {
+          setSelected(new Set());
+          setAnchorIndex(null);
+        }
+      };
+
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    },
+    [selected],
+  );
+
   const isTextByExt = useCallback((name: string) => {
     const ext = name.split(".").pop()?.toLowerCase() ?? "";
     const textExts = new Set([
@@ -731,37 +811,56 @@ export function SftpPane({
     [chmod, selectedEntries],
   );
 
-  // Open handler — text files open in editor, non-text open with OS app.
+  // Open handler — always opens with the OS default app (local or remote).
   const handleOpen = useCallback(() => {
     const entry = selectedEntries[0];
     if (!entry) return;
     if (entry.kind === "dir") {
       onEnterDir?.(entry.name);
     } else if (effectiveMode === "local") {
-      void invoke("fs_open", { path: `${path}/${entry.name}` }).catch(() => {});
+      void invoke("fs_open", { path: `${path}/${entry.name}` }).catch((e) =>
+        toast.error(`No se pudo abrir ${entry.name}: ${describeError(e)}`),
+      );
     } else if (sessionId != null) {
       const fullPath = `${path}/${entry.name}`;
       setRemoteLoading(true);
-      const handler = isTextByExt(entry.name) ? editRemoteFile : openRemoteFile;
-      void handler?.(sessionId, fullPath).finally(() =>
-        setRemoteLoading(false),
-      );
+      void openRemoteFile?.(sessionId, fullPath)
+        .catch((e) => toast.error(`No se pudo abrir ${entry.name}: ${describeError(e)}`))
+        .finally(() => setRemoteLoading(false));
     }
-  }, [selectedEntries, onEnterDir, effectiveMode, path, sessionId, editRemoteFile, openRemoteFile, isTextByExt]);
+  }, [selectedEntries, onEnterDir, effectiveMode, path, sessionId, openRemoteFile]);
 
-  // Open with OS default app (always, even for text files).
+  // Edit handler — always opens in Terax's own editor (local or remote).
+  const handleEdit = useCallback(() => {
+    const entry = selectedEntries[0];
+    if (!entry || entry.kind === "dir") return;
+    if (effectiveMode === "local") {
+      onOpenFile?.(`${path}/${entry.name}`);
+    } else if (sessionId != null) {
+      const fullPath = `${path}/${entry.name}`;
+      setRemoteLoading(true);
+      void editRemoteFile?.(sessionId, fullPath)
+        .catch((e) => toast.error(`No se pudo editar ${entry.name}: ${describeError(e)}`))
+        .finally(() => setRemoteLoading(false));
+    }
+  }, [selectedEntries, effectiveMode, path, sessionId, editRemoteFile, onOpenFile]);
+
+  // Open with... — native app picker (always, even for text files).
   const handleOpenWith = useCallback(() => {
     const entry = selectedEntries[0];
     if (!entry || entry.kind === "dir") return;
     if (effectiveMode === "local") {
-      void invoke("fs_open", { path: `${path}/${entry.name}` }).catch(() => {});
-    } else if (sessionId != null && openRemoteFile) {
-      setRemoteLoading(true);
-      void openRemoteFile(sessionId, `${path}/${entry.name}`).finally(() =>
-        setRemoteLoading(false),
+      void invoke("fs_open_with", { path: `${path}/${entry.name}` }).catch((e) =>
+        toast.error(`No se pudo abrir ${entry.name}: ${describeError(e)}`),
       );
+    } else if (sessionId != null) {
+      const fullPath = `${path}/${entry.name}`;
+      setRemoteLoading(true);
+      void openRemoteFileWith?.(sessionId, fullPath)
+        .catch((e) => toast.error(`No se pudo abrir ${entry.name}: ${describeError(e)}`))
+        .finally(() => setRemoteLoading(false));
     }
-  }, [selectedEntries, effectiveMode, path, sessionId, openRemoteFile]);
+  }, [selectedEntries, effectiveMode, path, sessionId, openRemoteFileWith]);
 
   // Reveal in Finder / file manager.
   const handleReveal = useCallback(() => {
@@ -862,7 +961,13 @@ export function SftpPane({
             <ContextMenuTrigger asChild>
               <div
                 ref={scrollRef}
-                onMouseDown={viewMode === "list" ? onListMouseDown : undefined}
+                onMouseDown={
+                  viewMode === "list"
+                    ? onListMouseDown
+                    : viewMode === "icons"
+                      ? onIconMouseDown
+                      : undefined
+                }
                 className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]"
               >
                 {viewMode === "list" ? (
@@ -968,42 +1073,55 @@ export function SftpPane({
                     })}
                   </div>
                 ) : (
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(auto-fill, minmax(76px, 1fr))",
-                      gap: "2px",
-                      padding: "6px",
-                    }}
-                  >
-                    {sorted.map((entry, index) => {
-                      const isPhantom = entry.name === "";
-                      const isRenaming =
-                        inlineEdit?.kind === "rename" &&
-                        inlineEdit.originalName === entry.name;
-                      return (
-                        <SftpFileRow
-                          key={entry.name || `phantom-${index}`}
-                          entry={entry}
-                          selected={selected.has(entry.name)}
-                          now={now}
-                          onMouseDown={(e) => onRowMouseDown(index, e)}
-                          onDoubleClick={() => handleRowDoubleClick(entry)}
-                          editing={isPhantom || isRenaming}
-                          onCommitRename={
-                            isPhantom
-                              ? inlineEdit?.kind === "new-folder"
-                                ? commitNewFolder
-                                : commitNewFile
-                              : isRenaming
-                                ? commitRename
-                                : undefined
-                          }
-                          onCancelEdit={cancelEdit}
-                          viewMode="icons"
-                        />
-                      );
-                    })}
+                  <div style={{ position: "relative" }}>
+                    {iconMarquee && (
+                      <div
+                        className="pointer-events-none absolute z-10 bg-primary/15 ring-1 ring-inset ring-primary/40"
+                        style={{
+                          left: iconMarquee.left,
+                          top: iconMarquee.top,
+                          width: iconMarquee.width,
+                          height: iconMarquee.height,
+                        }}
+                      />
+                    )}
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fill, minmax(76px, 1fr))",
+                        gap: "2px",
+                        padding: "6px",
+                      }}
+                    >
+                      {sorted.map((entry, index) => {
+                        const isPhantom = entry.name === "";
+                        const isRenaming =
+                          inlineEdit?.kind === "rename" &&
+                          inlineEdit.originalName === entry.name;
+                        return (
+                          <SftpFileRow
+                            key={entry.name || `phantom-${index}`}
+                            entry={entry}
+                            selected={selected.has(entry.name)}
+                            now={now}
+                            onMouseDown={(e) => onRowMouseDown(index, e)}
+                            onDoubleClick={() => handleRowDoubleClick(entry)}
+                            editing={isPhantom || isRenaming}
+                            onCommitRename={
+                              isPhantom
+                                ? inlineEdit?.kind === "new-folder"
+                                  ? commitNewFolder
+                                  : commitNewFile
+                                : isRenaming
+                                  ? commitRename
+                                  : undefined
+                            }
+                            onCancelEdit={cancelEdit}
+                            viewMode="icons"
+                          />
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
 
@@ -1063,7 +1181,7 @@ export function SftpPane({
                   selectedEntries[0]?.kind === "dir" ||
                   (effectiveMode === "remote" && sessionId == null)
                 }
-                onClick={handleOpen}
+                onClick={handleEdit}
               >
                 Edit
               </ContextMenuItem>

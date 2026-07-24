@@ -27,6 +27,68 @@ pub fn fs_open(path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Opens a file with a user-chosen application (native app picker).
+#[tauri::command]
+pub fn fs_open_with(path: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        // `choose application` returns an `application` reference that can't
+        // be coerced to alias/POSIX path on modern macOS (-1700). Use
+        // `choose file` restricted to app bundles instead — a normal file
+        // picker whose result coerces to POSIX path directly.
+        let output = std::process::Command::new("osascript")
+            .args([
+                "-e",
+                "set appFile to choose file with prompt \"Open With\" of type {\"com.apple.application-bundle\"} default location (path to applications folder)",
+                "-e",
+                "POSIX path of appFile",
+            ])
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.contains("-128") {
+                return Ok(()); // user canceled the picker
+            }
+            return Err(stderr.trim().to_string());
+        }
+
+        let app_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if app_path.is_empty() {
+            return Ok(());
+        }
+
+        let open_output = std::process::Command::new("open")
+            .args(["-a", &app_path, &path])
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        if !open_output.status.success() {
+            let stderr = String::from_utf8_lossy(&open_output.stderr);
+            return Err(stderr.trim().to_string());
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // Undocumented but well-known shell32 entry point that opens the
+        // native "How do you want to open this file?" picker directly.
+        std::process::Command::new("rundll32.exe")
+            .args(["shell32.dll,OpenAs_RunDLL", &path])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        // No standard CLI app picker exists; fall back to the default app.
+        std::process::Command::new("xdg-open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// Reveals a file in the OS file manager (Finder / Explorer / xdg-open dir).
 #[tauri::command]
 pub fn fs_reveal(path: String) -> Result<(), String> {

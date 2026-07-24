@@ -187,6 +187,7 @@ pub fn run() {
             fs::file::fs_stat,
             fs::file::fs_canonicalize,
             fs::mutate::fs_open,
+            fs::mutate::fs_open_with,
             fs::mutate::fs_reveal,
             fs::mutate::fs_create_file,
             fs::mutate::fs_create_dir,

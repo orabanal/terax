@@ -98,7 +98,7 @@ export function useSftpEdit(
     [onOpenFile],
   );
 
-  const openRemoteFile = useCallback(
+  const downloadToTemp = useCallback(
     async (sessionId: number, remotePath: string) => {
       const localPath = tmpPath(sessionId, remotePath);
       const dir = localPath.substring(0, localPath.lastIndexOf("/"));
@@ -110,10 +110,26 @@ export function useSftpEdit(
         localPath,
       });
 
-      await invoke("fs_open", { path: localPath }).catch(() => {});
+      return localPath;
     },
     [],
   );
 
-  return { editRemoteFile, openRemoteFile };
+  const openRemoteFile = useCallback(
+    async (sessionId: number, remotePath: string) => {
+      const localPath = await downloadToTemp(sessionId, remotePath);
+      await invoke("fs_open", { path: localPath });
+    },
+    [downloadToTemp],
+  );
+
+  const openRemoteFileWith = useCallback(
+    async (sessionId: number, remotePath: string) => {
+      const localPath = await downloadToTemp(sessionId, remotePath);
+      await invoke("fs_open_with", { path: localPath });
+    },
+    [downloadToTemp],
+  );
+
+  return { editRemoteFile, openRemoteFile, openRemoteFileWith };
 }

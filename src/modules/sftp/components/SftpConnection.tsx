@@ -45,7 +45,7 @@ export function SftpConnection({
   const local = useLocalDir(home);
   const remote = useRemoteDir();
   const data = mode === "local" ? local : remote;
-  const { editRemoteFile, openRemoteFile } = useSftpEdit(
+  const { editRemoteFile, openRemoteFile, openRemoteFileWith } = useSftpEdit(
     onOpenFile ?? (() => {}),
     data.refresh,
     enqueueRemoteEditUpload,
@@ -108,6 +108,8 @@ export function SftpConnection({
       sessionId={mode === "remote" ? remote.sessionId : null}
       editRemoteFile={editRemoteFile}
       openRemoteFile={openRemoteFile}
+      openRemoteFileWith={openRemoteFileWith}
+      onOpenFile={onOpenFile}
       onDuplicate={enqueueDuplicate}
     />
   );
