@@ -96,6 +96,8 @@ export function TabBar({
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
   // The SFTP tab is rendered as a fixed element outside the scrollable area so
   // it stays visible at all times.  The remaining tabs scroll independently.
   const sftpTab = tabs.find((t) => t.kind === "sftp") ?? null;
@@ -252,6 +254,34 @@ export function TabBar({
     return () => el.removeEventListener("wheel", onWheel);
   }, []);
 
+  // Track scroll position for fade indicators.
+  const updateScrollState = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const threshold = 2;
+    setCanScrollLeft(el.scrollLeft > threshold);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - threshold);
+  }, []);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    updateScrollState();
+    el.addEventListener("scroll", updateScrollState, { passive: true });
+    const observer = new ResizeObserver(updateScrollState);
+    observer.observe(el);
+    return () => {
+      el.removeEventListener("scroll", updateScrollState);
+      observer.disconnect();
+    };
+  }, [updateScrollState]);
+
+  // Re-evaluate scroll state when tabs change.
+  useEffect(() => {
+    const raf = requestAnimationFrame(updateScrollState);
+    return () => cancelAnimationFrame(raf);
+  }, [tabs.length, activeId, updateScrollState]);
+
   // Keep the active tab visible after selection / open.
   useEffect(() => {
     const el = scrollRef.current;
@@ -287,6 +317,13 @@ export function TabBar({
           <span className="truncate">{labelFor(sftpTab)}</span>
         </button>
       )}
+      <div className="relative min-w-0 shrink">
+        {canScrollLeft && (
+          <div className="pointer-events-none absolute left-0 top-0 bottom-0 z-10 w-8 bg-gradient-to-r from-background to-transparent" />
+        )}
+        {canScrollRight && (
+          <div className="pointer-events-none absolute right-0 top-0 bottom-0 z-10 w-8 bg-gradient-to-l from-background to-transparent" />
+        )}
       <div
         ref={scrollRef}
         className="min-w-0 shrink overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
@@ -554,6 +591,7 @@ export function TabBar({
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
+      </div>
       </div>
     </div>
     </div>
