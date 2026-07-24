@@ -329,7 +329,7 @@ export function TabBar({
           <button
             type="button"
             onClick={() => scrollTabs("left")}
-            className="absolute left-0 top-0 bottom-0 z-10 flex w-6 items-center justify-center bg-background text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            className="absolute left-0 top-0 bottom-0 z-10 flex w-8 items-center justify-center bg-gradient-to-r from-background via-background/80 to-transparent text-muted-foreground hover:text-foreground transition-colors"
             aria-label="Scroll tabs left"
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -341,7 +341,7 @@ export function TabBar({
           <button
             type="button"
             onClick={() => scrollTabs("right")}
-            className="absolute right-0 top-0 bottom-0 z-10 flex w-6 items-center justify-center bg-background text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            className="absolute right-0 top-0 bottom-0 z-10 flex w-8 items-center justify-center bg-gradient-to-l from-background via-background/80 to-transparent text-muted-foreground hover:text-foreground transition-colors"
             aria-label="Scroll tabs right"
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
