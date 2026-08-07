@@ -60,6 +60,8 @@ type Session = {
   lastCwd: string | null;
   pendingExit: number | null;
   shellExited: boolean;
+  /** SSH transport dropped (keepalive timeout / TCP failure), not a clean exit. */
+  sshDisconnected: boolean;
   callbacks: Callbacks;
   visibleNow: boolean;
   focusedNow: boolean;
@@ -111,6 +113,19 @@ export function getCwdForLeaf(leafId: number): string | null {
 /** Returns true if the session for `leafId` already has an active PTY. */
 export function isSessionConnected(leafId: number): boolean {
   return !!sessions.get(leafId)?.pty;
+}
+
+const SSH_EXIT_CONNECTION_LOST = -1;
+
+/** True if the SSH transport dropped unexpectedly (not a clean shell exit). */
+export function isSshDisconnected(leafId: number): boolean {
+  return sessions.get(leafId)?.sshDisconnected ?? false;
+}
+
+/** Clear the disconnect flag (user dismissed the reconnect modal). */
+export function clearSshDisconnected(leafId: number): void {
+  const s = sessions.get(leafId);
+  if (s) s.sshDisconnected = false;
 }
 
 const readyLeaves = new Set<number>();
@@ -243,6 +258,7 @@ function ensureSession(
     lastCwd: null,
     pendingExit: null,
     shellExited: false,
+    sshDisconnected: false,
     callbacks: {},
     visibleNow: false,
     focusedNow: false,
@@ -303,13 +319,16 @@ async function openPtyForSession(
         s.pendingInput = "";
         const slot = getSlotForLeaf(leafId);
         if (slot) slot.term.options.disableStdin = true;
-        const listener = sshStatusListeners.get(leafId);
-        if (code !== 0 && listener) {
-          listener("Disconnected");
-        } else {
-          if (s.callbacks.onExit) s.callbacks.onExit(code);
-          else s.pendingExit = code;
+        if (code === SSH_EXIT_CONNECTION_LOST) {
+          // Transport died (keepalive timeout, TCP reset). Surface the
+          // reconnect modal regardless of whether it is currently mounted;
+          // do not treat this as a shell exit.
+          s.sshDisconnected = true;
+          sshStatusListeners.get(leafId)?.("Disconnected");
+          return;
         }
+        if (s.callbacks.onExit) s.callbacks.onExit(code);
+        else s.pendingExit = code;
       },
       onStatus: (msg) => {
         sshStatusListeners.get(leafId)?.(msg);
@@ -483,6 +502,7 @@ export async function respawnSession(
   s.snapshot = null;
   s.dormantRing = new DormantRing();
   s.shellExited = false;
+  s.sshDisconnected = false;
   s.pendingExit = null;
   s.altScreenAtRelease = false;
 

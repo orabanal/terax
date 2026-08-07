@@ -200,6 +200,10 @@ pub async fn ssh_open(
     tauri::async_runtime::spawn(async move {
         let exit_code = run_ssh_loop(&mut channel, &mut input_rx, &mut resize_rx, &on_data).await;
         sessions.write().unwrap().remove(&id);
+        if exit_code == EXIT_CONNECTION_LOST {
+            log::warn!("ssh session {id}: connection lost (keepalive timeout or transport failure)");
+            let _ = on_status.send("Disconnected".to_string());
+        }
         let _ = on_exit.send(exit_code);
         let h = handle.lock().await;
         let _ = h.disconnect(Disconnect::ByApplication, "", "English").await;
@@ -207,6 +211,11 @@ pub async fn ssh_open(
 
     Ok(id)
 }
+
+/// Channel closed without an exit status: the transport died (keepalive
+/// timeout, TCP reset, server disconnect) rather than the remote shell
+/// exiting cleanly.
+const EXIT_CONNECTION_LOST: i32 = -1;
 
 async fn run_ssh_loop(
     channel: &mut russh::Channel<russh::client::Msg>,
@@ -216,32 +225,42 @@ async fn run_ssh_loop(
 ) -> i32 {
     loop {
         tokio::select! {
-            Some(data) = input_rx.recv() => {
-                if channel.data(data.as_ref()).await.is_err() {
-                    return 1;
+            res = input_rx.recv() => {
+                match res {
+                    Some(data) => {
+                        if channel.data(data.as_ref()).await.is_err() {
+                            return EXIT_CONNECTION_LOST;
+                        }
+                    }
+                    None => {
+                        // Frontend dropped the session (ssh_close / tab closed).
+                        return 0;
+                    }
                 }
             }
             Some((cols, rows)) = resize_rx.recv() => {
                 let _ = channel.window_change(cols, rows, 0, 0).await;
             }
-            Some(msg) = channel.wait() => {
+            msg = channel.wait() => {
                 match msg {
-                    ChannelMsg::Data { data } => {
+                    Some(ChannelMsg::Data { data }) => {
                         let bytes: Vec<u8> = data.to_vec();
                         if on_data.send(Response::new(bytes)).is_err() {
-                            return 1;
+                            return 0;
                         }
                     }
-                    ChannelMsg::ExitStatus { exit_status } => {
+                    Some(ChannelMsg::ExitStatus { exit_status }) => {
                         return exit_status as i32;
                     }
-                    ChannelMsg::Eof => {
+                    Some(ChannelMsg::Eof) => {
                         return 0;
                     }
-                    _ => {}
+                    Some(_) => {}
+                    None => {
+                        return EXIT_CONNECTION_LOST;
+                    }
                 }
             }
-            else => return 1,
         }
     }
 }

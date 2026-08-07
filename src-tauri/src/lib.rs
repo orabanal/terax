@@ -133,6 +133,7 @@ pub fn run() {
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(tauri_plugin_log::log::LevelFilter::Info)
+                .level_for("russh", tauri_plugin_log::log::LevelFilter::Debug)
                 .build(),
         )
         .plugin(tauri_plugin_clipboard_manager::init())

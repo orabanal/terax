@@ -98,6 +98,12 @@ export function TabBar({
   const [editingId, setEditingId] = useState<number | null>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
+  // Sliding active-tab pill: geometry of the active trigger relative to the
+  // scrolling content. null while the active tab is the pinned SFTP one or no
+  // measurement has landed yet.
+  const [pill, setPill] = useState<{ left: number; width: number } | null>(null);
+  const [pillAnim, setPillAnim] = useState(false);
+  const pillFirst = useRef(true);
   // The SFTP tab is rendered as a fixed element outside the scrollable area so
   // it stays visible at all times.  The remaining tabs scroll independently.
   const sftpTab = tabs.find((t) => t.kind === "sftp") ?? null;
@@ -297,6 +303,41 @@ export function TabBar({
     active?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [activeId]);
 
+  // Measure the active trigger so the shared pill can slide to it. Runs after
+  // layout (rAF) and re-measures on resize / font load. Animation is enabled
+  // only after the first landed measurement, so the pill never slides in from
+  // position 0 on mount.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const measure = () => {
+      const active = el.querySelector<HTMLElement>(`[data-tab-id="${activeId}"]`);
+      if (!active) {
+        setPill(null);
+        return;
+      }
+      const left = active.offsetLeft;
+      const width = active.offsetWidth;
+      setPill((prev) =>
+        prev && prev.left === left && prev.width === width ? prev : { left, width },
+      );
+      if (pillFirst.current) {
+        pillFirst.current = false;
+        if (!reduce) requestAnimationFrame(() => setPillAnim(true));
+      }
+    };
+    measure();
+    const raf = requestAnimationFrame(measure);
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    document.fonts?.ready.then(measure).catch(() => {});
+    return () => {
+      cancelAnimationFrame(raf);
+      observer.disconnect();
+    };
+  }, [activeId, tabs]);
+
   const draggedTab = draggedTabId !== null
     ? scrollableTabs.find((t) => t.id === draggedTabId) ?? null
     : null;
@@ -351,8 +392,18 @@ export function TabBar({
         )}
       <div
         ref={scrollRef}
-        className="min-w-0 shrink overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="relative min-w-0 shrink overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
+        {pill && (
+          <div
+            aria-hidden
+            className={cn(
+              "pointer-events-none absolute inset-y-0.5 rounded-md bg-accent",
+              pillAnim && "transition-[transform,width] duration-200 ease-out",
+            )}
+            style={{ width: pill.width, transform: `translateX(${pill.left}px)` }}
+          />
+        )}
         <div className="flex w-max items-center gap-0.5">
           <Tabs
             value={String(activeId)}
@@ -421,10 +472,14 @@ export function TabBar({
                     handleTabMouseDown(e, t.id);
                   }}
                   className={cn(
+                    // The active background is painted by the shared sliding
+                    // pill behind the triggers; data-active variants are
+                    // neutralized so only the text color changes here.
                     "group h-7 shrink-0 gap-1.5 rounded-md text-xs transition-colors hover:text-foreground/80 justify-between",
+                    "data-active:bg-transparent dark:data-active:bg-transparent dark:data-active:border-transparent",
                     isDragged && "opacity-40",
                     isActive
-                      ? "bg-accent text-foreground"
+                      ? "text-foreground"
                       : "text-muted-foreground",
                     fixedWidth && (compact ? "w-32" : "w-40"),
                     compact

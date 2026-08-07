@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
+  clearSshDisconnected,
   focusSlot,
   isSessionConnected,
+  isSshDisconnected,
   respawnSession,
   sshStatusListeners,
 } from "@/modules/terminal/lib/useTerminalSession";
@@ -20,12 +22,20 @@ const DONE_STATES = ["Connected", "Error", "Failed", "Closed"];
 
 export function SshConnectingModal({ leafId, hostName, onClose }: Props) {
   const [phase, setPhase] = useState<Phase>(() =>
-    isSessionConnected(leafId) ? "hidden" : "connecting",
+    isSshDisconnected(leafId)
+      ? "disconnected"
+      : isSessionConnected(leafId)
+        ? "hidden"
+        : "connecting",
   );
   const [status, setStatus] = useState<string>("Connecting...");
 
   useEffect(() => {
-    if (isSessionConnected(leafId)) {
+    // A disconnect may have happened while this leaf was out of the tree
+    // (e.g. pane closed and re-added); recover that state on mount.
+    if (isSshDisconnected(leafId)) {
+      setPhase("disconnected");
+    } else if (isSessionConnected(leafId)) {
       setPhase("hidden");
       return;
     }
@@ -85,7 +95,10 @@ export function SshConnectingModal({ leafId, hostName, onClose }: Props) {
             <Button
               size="sm"
               variant="ghost"
-              onClick={onClose}
+              onClick={() => {
+                clearSshDisconnected(leafId);
+                onClose();
+              }}
             >
               Close
             </Button>
