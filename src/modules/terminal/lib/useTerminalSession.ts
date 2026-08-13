@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { ensureMonoFontsLoaded } from "@/lib/fonts";
+import { probeRemoteOs } from "@/modules/os-icon";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { SshHost } from "@/modules/ssh/store";
 import type { SearchAddon } from "@xterm/addon-search";
@@ -312,6 +313,7 @@ async function openPtyForSession(
   if (s.sshHost) {
     const host = s.sshHost;
     return openSshPty(startCols, startRows, host, host.password, {
+      onConnected: (sshId) => probeRemoteOs(host.id, sshId),
       onData: (bytes) => deliverPtyBytes(leafId, bytes),
       onExit: (code) => {
         s.shellExited = true;

@@ -9,6 +9,8 @@ export type PtyHandlers = {
 
 export type SshHandlers = PtyHandlers & {
   onStatus?: (msg: string) => void;
+  /** Called once the SSH session id exists (transport + PTY channel up). */
+  onConnected?: (sshId: number) => void;
 };
 
 export type PtySession = {
@@ -121,6 +123,8 @@ export async function openSshPty(
     onExit,
     onStatus,
   });
+
+  handlers.onConnected?.(id);
 
   let closed = false;
 

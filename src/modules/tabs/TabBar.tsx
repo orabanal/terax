@@ -18,6 +18,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
+import { localOsId, OsIcon, useDetectedDistro } from "@/modules/os-icon";
 import { useSshHostsStore, type SshHost } from "@/modules/ssh/store";
 import {
   Cancel01Icon,
@@ -690,6 +691,9 @@ export function TabBar({
 }
 
 function TabIcon({ tab }: { tab: Tab }) {
+  if (tab.kind === "terminal" && tab.sshHostId) {
+    return <SshTabIcon hostId={tab.sshHostId} />;
+  }
   if (tab.kind === "editor" || tab.kind === "markdown") {
     const url = fileIconUrl(tab.title);
     return url ? <img src={url} alt="" className="size-3.5 shrink-0" /> : null;
@@ -718,16 +722,6 @@ function TabIcon({ tab }: { tab: Tab }) {
     return (
       <HugeiconsIcon
         icon={IncognitoIcon}
-        size={14}
-        strokeWidth={2}
-        className="shrink-0"
-      />
-    );
-  }
-  if (tab.kind === "terminal" && tab.sshHostId) {
-    return (
-      <HugeiconsIcon
-        icon={ServerStack01Icon}
         size={14}
         strokeWidth={2}
         className="shrink-0"
@@ -764,9 +758,26 @@ function TabIcon({ tab }: { tab: Tab }) {
       />
     );
   }
+  const osId = localOsId();
+  if (tab.kind === "terminal" && osId) {
+    return <OsIcon distroId={osId} />;
+  }
   return (
     <HugeiconsIcon
       icon={ComputerTerminal02Icon}
+      size={14}
+      strokeWidth={2}
+      className="shrink-0"
+    />
+  );
+}
+
+function SshTabIcon({ hostId }: { hostId: string }) {
+  const detected = useDetectedDistro(hostId);
+  if (detected) return <OsIcon distroId={detected} />;
+  return (
+    <HugeiconsIcon
+      icon={ServerStack01Icon}
       size={14}
       strokeWidth={2}
       className="shrink-0"
