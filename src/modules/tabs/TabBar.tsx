@@ -285,9 +285,12 @@ export function TabBar({
 
   // Re-evaluate scroll state when tabs change.
   useEffect(() => {
-    const raf = requestAnimationFrame(updateScrollState);
+    // Double rAF ensures the DOM has completed reflow after tab changes.
+    const raf = requestAnimationFrame(() => {
+      requestAnimationFrame(updateScrollState);
+    });
     return () => cancelAnimationFrame(raf);
-  }, [tabs.length, activeId, updateScrollState]);
+  }, [scrollableTabs.length, activeId, updateScrollState]);
 
   const scrollTabs = useCallback((direction: "left" | "right") => {
     const el = scrollRef.current;
