@@ -1,1 +1,1 @@
-TERAX.md
+CLAUDE.md

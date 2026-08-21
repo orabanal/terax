@@ -266,8 +266,20 @@ export function TabBar({
     const el = scrollRef.current;
     if (!el) return;
     const threshold = 2;
-    setCanScrollLeft(el.scrollLeft > threshold);
-    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - threshold);
+
+    // Check if content actually overflows by comparing the inner content width
+    // to the container's client width, not scrollWidth (which can be affected
+    // by the arrow buttons themselves).
+    const inner = el.querySelector('[data-tabs-inner]') as HTMLElement | null;
+    if (!inner) {
+      setCanScrollLeft(false);
+      setCanScrollRight(false);
+      return;
+    }
+
+    const needsScroll = inner.offsetWidth > el.clientWidth;
+    setCanScrollLeft(needsScroll && el.scrollLeft > threshold);
+    setCanScrollRight(needsScroll && el.scrollLeft + el.clientWidth < el.scrollWidth - threshold);
   }, []);
 
   useEffect(() => {
@@ -285,7 +297,7 @@ export function TabBar({
 
   // Re-evaluate scroll state when tabs change.
   useEffect(() => {
-    // Double rAF ensures the DOM has completed reflow after tab changes.
+    // Double rAF to ensure DOM reflow completes after tab changes.
     const raf = requestAnimationFrame(() => {
       requestAnimationFrame(updateScrollState);
     });
@@ -408,7 +420,7 @@ export function TabBar({
             style={{ width: pill.width, transform: `translateX(${pill.left}px)` }}
           />
         )}
-        <div className="flex w-max items-center gap-0.5">
+        <div data-tabs-inner className="flex w-max items-center gap-0.5">
           <Tabs
             value={String(activeId)}
             onValueChange={(v) => onSelect(Number(v))}
