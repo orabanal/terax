@@ -14,6 +14,7 @@ export type GitQuickSummary = {
 export type GitSummaryState = {
   summary: GitQuickSummary | null;
   sshCwd: string | null;
+  loading: boolean;
 };
 
 const POLL_MS = 15_000;
@@ -96,9 +97,11 @@ export function useGitSummary(
 ): GitSummaryState {
   const [summary, setSummary] = useState<GitQuickSummary | null>(null);
   const [sshCwd, setSshCwd] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const liveRef = useRef(true);
 
   const fetch = useCallback(async () => {
+    setLoading(true);
     try {
       let result: GitQuickSummary | null = null;
       let detectedCwd: string | null = null;
@@ -118,11 +121,13 @@ export function useGitSummary(
       if (liveRef.current) {
         setSummary(result);
         setSshCwd(detectedCwd);
+        setLoading(false);
       }
     } catch {
       if (liveRef.current) {
         setSummary(null);
         setSshCwd(null);
+        setLoading(false);
       }
     }
   }, [cwd, leafId, isSSH]);
@@ -158,5 +163,5 @@ export function useGitSummary(
     };
   }, [fetch, isSSH, leafId]);
 
-  return { summary, sshCwd };
+  return { summary, sshCwd, loading };
 }

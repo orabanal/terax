@@ -123,12 +123,14 @@ export const AiSidebar = memo(function AiSidebar({
     >
       {/* Drag handle */}
       <div
-        className="absolute -left-px top-0 z-10 h-full w-1 cursor-ew-resize"
+        className="group absolute -left-px top-0 z-10 h-full w-1 cursor-ew-resize transition-colors hover:bg-primary/40"
         onPointerDown={handleDragStart}
         onPointerMove={handleDragMove}
         onPointerUp={handleDragEnd}
         onPointerCancel={handleDragEnd}
-      />
+      >
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-8 w-1 rounded-full bg-border/40 opacity-0 transition-opacity group-hover:opacity-100" />
+      </div>
 
       <AiSidebarInner
         key={`${scopeType}:${scopeTargetId ?? ""}`}
@@ -432,7 +434,7 @@ function AiSidebarSession({
   return (
     <>
       {/* Header */}
-      <div className="flex shrink-0 items-center justify-between px-2.5 py-1.5 border-b border-border/50">
+      <div className="flex shrink-0 items-center justify-between px-2.5 py-1.5 border-b border-border/50 bg-card/50">
         <div className="flex min-w-0 items-center gap-1.5">
           <AgentSwitcher isMiniWindow scopeKey={sk} />
         </div>
@@ -440,8 +442,9 @@ function AiSidebarSession({
           <Button
             size="icon"
             variant="ghost"
-            className="h-7 w-7 rounded-md text-muted-foreground/62 hover:text-foreground"
+            className="h-7 w-7 rounded-md text-muted-foreground/70 transition-all duration-200 hover:text-foreground hover:bg-accent hover:scale-110 active:scale-95"
             title="Session history"
+            aria-label="Session history"
             onClick={() => setShowHistory(!showHistory)}
           >
             <HugeiconsIcon icon={TimeScheduleIcon} size={13} strokeWidth={1.75} />
@@ -449,8 +452,9 @@ function AiSidebarSession({
           <Button
             size="icon"
             variant="ghost"
-            className="h-7 w-7 rounded-md text-muted-foreground/62 hover:text-foreground"
+            className="h-7 w-7 rounded-md text-muted-foreground/70 transition-all duration-200 hover:text-foreground hover:bg-accent hover:scale-110 active:scale-95"
             title="New chat"
+            aria-label="New chat"
             onClick={handleNewChat}
           >
             <HugeiconsIcon icon={Add01Icon} size={13} strokeWidth={1.75} />
@@ -458,8 +462,9 @@ function AiSidebarSession({
           <Button
             size="icon"
             variant="ghost"
-            className="h-7 w-7 rounded-md text-muted-foreground/62 hover:text-foreground"
+            className="h-7 w-7 rounded-md text-muted-foreground/70 transition-all duration-200 hover:text-foreground hover:bg-accent hover:scale-110 active:scale-95"
             title="Close sidebar"
+            aria-label="Close AI sidebar"
             onClick={onToggle}
           >
             <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={1.75} />
@@ -501,8 +506,8 @@ function AiSidebarSession({
 
           {/* Step indicator */}
           {isBusy && meta.step && (
-            <div className="flex shrink-0 items-center gap-2 border-t border-border/30 px-3 py-1.5">
-              <Spinner />
+            <div className="flex shrink-0 items-center gap-2 border-t border-border/30 px-3 py-1.5 bg-muted/20 animate-in fade-in-0 slide-in-from-top-1 duration-200">
+              <Spinner className="shrink-0" />
               <span className="truncate text-[10.5px] text-muted-foreground">
                 {meta.step}
               </span>
@@ -537,7 +542,7 @@ function AiSidebarSession({
                 ))}
               </div>
             )}
-            <div className="flex flex-col rounded-[22px] border border-border/65 bg-background/92 shadow-[0_18px_42px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.04)] supports-[backdrop-filter]:backdrop-blur-sm overflow-hidden transition-[border-color,background-color,box-shadow] focus-within:border-primary/45 focus-within:bg-background focus-within:ring-1 focus-within:ring-primary/20">
+            <div className="flex flex-col rounded-[22px] border border-border/65 bg-background/92 shadow-[0_18px_42px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.04)] supports-[backdrop-filter]:backdrop-blur-sm overflow-hidden transition-all duration-200 focus-within:border-primary/45 focus-within:bg-background focus-within:ring-1 focus-within:ring-primary/20 focus-within:shadow-[0_20px_48px_rgba(0,0,0,0.40),inset_0_1px_0_rgba(255,255,255,0.06)]">
               {attachments.length > 0 && (
                 <AttachmentChips attachments={attachments} onRemove={removeAttachment} />
               )}
@@ -575,17 +580,19 @@ function AiSidebarSession({
                   <Button
                     size="icon"
                     variant="destructive"
-                    className="h-8 w-8 rounded-full border border-destructive/60 bg-destructive/85 p-0 shadow-sm hover:bg-destructive"
+                    className="h-8 w-8 rounded-full border border-destructive/60 bg-destructive/85 p-0 shadow-sm transition-all duration-200 hover:bg-destructive hover:scale-110 active:scale-95"
                     onClick={() => void helpers.stop()}
+                    aria-label="Stop generation"
                   >
                     <HugeiconsIcon icon={Cancel01Icon} size={14} strokeWidth={2} />
                   </Button>
                 ) : (
                   <Button
                     size="icon"
-                    className="h-8 w-8 rounded-full border border-foreground/20 bg-foreground p-0 shadow-sm hover:bg-foreground/90 disabled:border-border/80 disabled:bg-muted/52 disabled:text-foreground/72"
+                    className="h-8 w-8 rounded-full border border-foreground/20 bg-foreground p-0 shadow-sm transition-all duration-200 hover:bg-foreground/90 hover:scale-110 active:scale-95 disabled:border-border/80 disabled:bg-muted/52 disabled:text-foreground/72 disabled:hover:scale-100"
                     disabled={!input.trim() && attachments.length === 0}
                     onClick={() => void handleSend()}
+                    aria-label="Send message"
                   >
                     <HugeiconsIcon icon={ArrowDown01Icon} size={14} strokeWidth={2} className="rotate-[-90deg] text-background" />
                   </Button>
@@ -622,10 +629,44 @@ function AiSidebarSession({
 
 function EmptyState() {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
-      <p className="text-[13px] text-muted-foreground/40">
-        Ask anything. The agent has access to your terminal, files, and shell.
-      </p>
+    <div className="flex flex-1 flex-col items-center justify-center px-6 text-center gap-6 animate-in fade-in-0 duration-500">
+      <div className="flex flex-col items-center gap-3">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/20">
+          <HugeiconsIcon icon={BrainIcon} size={32} strokeWidth={1.5} className="text-primary" />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <h3 className="text-sm font-medium text-foreground">AI Agent Ready</h3>
+          <p className="text-[12px] text-muted-foreground/60 leading-relaxed">
+            Ask anything. The agent has access to your terminal, files, and shell.
+          </p>
+        </div>
+      </div>
+      <div className="flex flex-col gap-2 w-full">
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground/50 font-medium">Quick start</p>
+        <div className="flex flex-col gap-1.5">
+          <button
+            type="button"
+            className="group flex items-center gap-2 rounded-lg border border-border/40 bg-muted/20 px-3 py-2 text-left transition-all duration-200 hover:border-border hover:bg-muted/40 hover:scale-[1.02] active:scale-[0.98]"
+          >
+            <HugeiconsIcon icon={TerminalIcon} size={14} strokeWidth={1.75} className="shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
+            <span className="text-[11px] text-muted-foreground group-hover:text-foreground transition-colors">Explain this terminal output</span>
+          </button>
+          <button
+            type="button"
+            className="group flex items-center gap-2 rounded-lg border border-border/40 bg-muted/20 px-3 py-2 text-left transition-all duration-200 hover:border-border hover:bg-muted/40 hover:scale-[1.02] active:scale-[0.98]"
+          >
+            <HugeiconsIcon icon={File01Icon} size={14} strokeWidth={1.75} className="shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
+            <span className="text-[11px] text-muted-foreground group-hover:text-foreground transition-colors">Review this code file</span>
+          </button>
+          <button
+            type="button"
+            className="group flex items-center gap-2 rounded-lg border border-border/40 bg-muted/20 px-3 py-2 text-left transition-all duration-200 hover:border-border hover:bg-muted/40 hover:scale-[1.02] active:scale-[0.98]"
+          >
+            <HugeiconsIcon icon={ZapIcon} size={14} strokeWidth={1.75} className="shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
+            <span className="text-[11px] text-muted-foreground group-hover:text-foreground transition-colors">Help me debug an issue</span>
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -22,9 +22,11 @@ export function AgentStatusPill({ onClick }: Props) {
       key={`${meta.status}:${label}`}
       type="button"
       onClick={onClick}
+      aria-label={`AI agent status: ${label}`}
       className={cn(
-        "flex h-6 items-center gap-1.5 rounded-md border px-1.5 text-[11px] transition-colors",
-        "animate-in fade-in-0 slide-in-from-top-1 duration-150 ease-out",
+        "flex h-5 items-center gap-1.5 rounded-md border px-1.5 text-[10.5px] transition-all duration-200",
+        "animate-in fade-in-0 slide-in-from-top-2 duration-200 ease-out",
+        "hover:scale-105 active:scale-95",
         tone,
       )}
       title="Open AI log"

@@ -92,6 +92,7 @@ export function SftpConnection({
       onUp={data.goUp}
       onHome={data.goHome}
       onRefresh={data.refresh}
+      onReconnect={mode === "remote" ? remote.reconnect : undefined}
       canGoBack={data.canGoBack}
       canGoForward={data.canGoForward}
       showHidden={data.showHidden}

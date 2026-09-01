@@ -327,6 +327,10 @@ async function openPtyForSession(
           // do not treat this as a shell exit.
           s.sshDisconnected = true;
           sshStatusListeners.get(leafId)?.("Disconnected");
+          // Emit event for reactive UI updates (replaces polling)
+          window.dispatchEvent(
+            new CustomEvent("terax:ssh-activity", { detail: { leafId } })
+          );
           return;
         }
         if (s.callbacks.onExit) s.callbacks.onExit(code);
@@ -334,6 +338,10 @@ async function openPtyForSession(
       },
       onStatus: (msg) => {
         sshStatusListeners.get(leafId)?.(msg);
+        // Emit event on status changes for reactive updates
+        window.dispatchEvent(
+          new CustomEvent("terax:ssh-activity", { detail: { leafId } })
+        );
       },
     }, cwd);
   }

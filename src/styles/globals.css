@@ -314,15 +314,16 @@ textarea,
  * Chromium bars that break the chrome, and macOS WKWebView flashes its overlay
  * scrollbar briefly during layout transitions (AI panel open, pane split,
  * window resize) which looks like a glitch. Visible scroll affordances are
- * provided per-region via shadcn <ScrollArea>. */
+ * provided per-region via shadcn <ScrollArea>.
+ * Exception: Keep scrollbars in ScrollArea components and user-controlled areas. */
 html,
-html *,
+html *:not(.scroll-area):not(.scroll-area *),
 html *::before,
 html *::after {
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
-html *::-webkit-scrollbar {
+html *:not(.scroll-area):not(.scroll-area *)::-webkit-scrollbar {
   width: 0;
   height: 0;
   display: none;

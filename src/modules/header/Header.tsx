@@ -126,9 +126,10 @@ export function Header({
     <Button
       variant="ghost"
       size="icon"
-      className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+      className="size-7 shrink-0 rounded-md text-muted-foreground transition-all duration-200 hover:bg-accent hover:text-foreground hover:scale-110 active:scale-95"
       onClick={onOpenSettings}
       title="Settings"
+      aria-label="Open settings"
     >
       <HugeiconsIcon icon={Settings01Icon} size={15} strokeWidth={1.75} />
     </Button>
@@ -146,9 +147,10 @@ export function Header({
         <Button
           onClick={onToggleSidebar}
           title="Toggle sidebar"
+          aria-label="Toggle sidebar"
           variant="ghost"
           size="icon-sm"
-          className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="shrink-0 rounded-md text-muted-foreground transition-all duration-200 hover:bg-accent hover:text-foreground hover:scale-110 active:scale-95"
         >
           <HugeiconsIcon icon={SidebarLeftIcon} size={18} strokeWidth={1.75} />
         </Button>
@@ -158,8 +160,9 @@ export function Header({
             <Button
               variant="ghost"
               size="icon-sm"
-              className="shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+              className="shrink-0 rounded-md text-muted-foreground transition-all duration-200 hover:bg-accent hover:text-foreground hover:scale-110 active:scale-95 disabled:opacity-50 disabled:hover:scale-100"
               title="Split terminal"
+              aria-label="Split terminal pane"
               disabled={!canSplit}
             >
               <HugeiconsIcon icon={GridViewIcon} size={16} strokeWidth={1.75} />

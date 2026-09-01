@@ -55,26 +55,6 @@ const TOOL_META: Record<string, { label: string; icon: typeof File01Icon }> = {
   todo_write: { label: "Todos", icon: CheckListIcon },
 };
 
-const STATUS_DOT: Record<ToolPart["state"], string> = {
-  "approval-requested": "bg-amber-500",
-  "approval-responded": "bg-sky-500",
-  "input-streaming": "bg-muted-foreground/40",
-  "input-available": "bg-amber-500",
-  "output-available": "bg-transparent border border-muted-foreground/40",
-  "output-denied": "bg-orange-500",
-  "output-error": "bg-destructive",
-};
-
-const STATUS_LABEL: Record<ToolPart["state"], string> = {
-  "approval-requested": "awaiting approval",
-  "approval-responded": "responded",
-  "input-streaming": "preparing",
-  "input-available": "running",
-  "output-available": "done",
-  "output-denied": "denied",
-  "output-error": "error",
-};
-
 function deriveSummary(toolName: string, input: unknown): string | null {
   if (!input || typeof input !== "object") return null;
   const i = input as Record<string, unknown>;
@@ -150,7 +130,6 @@ const ToolImpl = ({
 }: ToolProps) => {
   const meta = TOOL_META[toolName];
   const Icon = meta?.icon ?? ToolsIcon;
-  const label = meta?.label ?? toolName;
   const summary = deriveSummary(toolName, input);
   const isError = state === "output-error";
   const open = defaultOpen ?? isError;
@@ -171,43 +150,45 @@ const ToolImpl = ({
       <CollapsibleTrigger
         disabled={!hasDetails}
         className={cn(
-          "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left",
-          "text-[12px] transition-colors",
-          "hover:bg-muted/60 disabled:cursor-default disabled:hover:bg-transparent",
+          "flex w-full items-center gap-2.5 rounded-xl border border-border/40 bg-muted/30 px-3.5 py-2.5 text-left backdrop-blur-sm",
+          "text-[13px] transition-all duration-200",
+          "hover:bg-muted/50 hover:border-border/60 disabled:cursor-default",
           "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+          state === "output-available" && "bg-muted/25 border-emerald-500/30",
+          state === "output-error" && "bg-destructive/10 border-destructive/40",
         )}
       >
-        <span
-          className={cn("size-1.5 shrink-0 rounded-full", STATUS_DOT[state])}
-          aria-label={STATUS_LABEL[state]}
+        <HugeiconsIcon
+          icon={ArrowRight01Icon}
+          size={14}
+          strokeWidth={1.75}
+          className="shrink-0 text-muted-foreground/50 transition-transform group-data-[state=open]/tool:rotate-90"
         />
         <HugeiconsIcon
           icon={Icon}
-          size={13}
+          size={14}
           strokeWidth={1.75}
           className="shrink-0 text-muted-foreground"
         />
-        <span className="shrink-0 font-medium text-foreground">{label}</span>
-        {summary ? (
-          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
-            {summary}
-          </span>
-        ) : (
-          <span className="flex-1" />
+        <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-foreground/90">
+          {summary || toolName}
+        </span>
+        {state === "input-available" && (
+          <span className="flex shrink-0 size-1.5 rounded-full bg-amber-500 animate-pulse" />
         )}
         {state === "output-available" && (
-          <span className="flex shrink-0 size-4 items-center justify-center rounded-full bg-emerald-500">
-            <HugeiconsIcon icon={Tick01Icon} size={10} strokeWidth={2.5} className="text-white" />
+          <span className="flex shrink-0 size-5 items-center justify-center rounded-full border border-emerald-500 bg-transparent">
+            <HugeiconsIcon icon={Tick01Icon} size={12} strokeWidth={2} className="text-emerald-500" />
           </span>
         )}
         {state === "output-error" && (
-          <span className="flex shrink-0 size-4 items-center justify-center rounded-full bg-destructive">
-            <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2.5} className="text-white" />
+          <span className="flex shrink-0 size-5 items-center justify-center rounded-full border border-destructive bg-transparent">
+            <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} className="text-destructive" />
           </span>
         )}
         {state === "output-denied" && (
-          <span className="flex shrink-0 size-4 items-center justify-center rounded-full bg-orange-500">
-            <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2.5} className="text-white" />
+          <span className="flex shrink-0 size-5 items-center justify-center rounded-full border border-orange-500 bg-transparent">
+            <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} className="text-orange-500" />
           </span>
         )}
       </CollapsibleTrigger>
@@ -216,7 +197,7 @@ const ToolImpl = ({
         <CollapsibleContent
           className={cn("terax-collapsible-content")}
         >
-          <div className="ml-3 mt-1 space-y-2 border-l border-border/60 pl-3 pb-1">
+          <div className="mt-2 space-y-2 rounded-lg border border-border/30 bg-muted/15 px-3 py-2.5">
             {showInputBody ? (
               <ToolInput toolName={toolName} input={input} />
             ) : null}

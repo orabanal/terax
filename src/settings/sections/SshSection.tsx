@@ -204,8 +204,9 @@ export function SshSection() {
           </p>
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2 space-y-1">
-              <label className="text-xs text-muted-foreground">Name</label>
+              <label htmlFor="ssh-name" className="text-xs text-muted-foreground">Name</label>
               <Input
+                id="ssh-name"
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                 placeholder="My server"
@@ -213,8 +214,9 @@ export function SshSection() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Host</label>
+              <label htmlFor="ssh-host" className="text-xs text-muted-foreground">Host</label>
               <Input
+                id="ssh-host"
                 value={form.host}
                 onChange={(e) => setForm((f) => ({ ...f, host: e.target.value }))}
                 placeholder="192.168.1.1"
@@ -222,8 +224,9 @@ export function SshSection() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Port</label>
+              <label htmlFor="ssh-port" className="text-xs text-muted-foreground">Port</label>
               <Input
+                id="ssh-port"
                 type="number"
                 value={form.port}
                 onChange={(e) => setForm((f) => ({ ...f, port: Number(e.target.value) }))}
@@ -232,8 +235,9 @@ export function SshSection() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Username</label>
+              <label htmlFor="ssh-username" className="text-xs text-muted-foreground">Username</label>
               <Input
+                id="ssh-username"
                 value={form.username}
                 onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
                 placeholder="root"
@@ -241,12 +245,12 @@ export function SshSection() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Authentication</label>
+              <label htmlFor="ssh-authType" className="text-xs text-muted-foreground">Authentication</label>
               <Select
                 value={form.authType}
                 onValueChange={(v) => setForm((f) => ({ ...f, authType: v as SshAuthType }))}
               >
-                <SelectTrigger className="h-8 text-sm">
+                <SelectTrigger id="ssh-authType" className="h-8 text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -257,8 +261,9 @@ export function SshSection() {
             </div>
             {form.authType === "key" && (
               <div className="col-span-2 space-y-1">
-                <label className="text-xs text-muted-foreground">Key path</label>
+                <label htmlFor="ssh-keyPath" className="text-xs text-muted-foreground">Key path</label>
                 <Input
+                  id="ssh-keyPath"
                   value={form.keyPath}
                   onChange={(e) => setForm((f) => ({ ...f, keyPath: e.target.value }))}
                   placeholder="~/.ssh/id_rsa"
@@ -268,8 +273,9 @@ export function SshSection() {
             )}
             {form.authType === "password" && (
               <div className="col-span-2 space-y-1">
-                <label className="text-xs text-muted-foreground">Password</label>
+                <label htmlFor="ssh-password" className="text-xs text-muted-foreground">Password</label>
                 <Input
+                  id="ssh-password"
                   type="password"
                   value={form.password}
                   onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
@@ -280,8 +286,9 @@ export function SshSection() {
               </div>
             )}
             <div className="col-span-2 space-y-1">
-              <label className="text-xs text-muted-foreground">Initial command (optional)</label>
+              <label htmlFor="ssh-initialCommand" className="text-xs text-muted-foreground">Initial command (optional)</label>
               <Input
+                id="ssh-initialCommand"
                 value={form.initialCommand}
                 onChange={(e) => setForm((f) => ({ ...f, initialCommand: e.target.value }))}
                 placeholder="tmux attach || tmux"
@@ -293,8 +300,9 @@ export function SshSection() {
           <p className="text-xs font-medium text-muted-foreground pt-1">Advanced options</p>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Keepalive interval (sec)</label>
+              <label htmlFor="ssh-keepAliveInterval" className="text-xs text-muted-foreground">Keepalive interval (sec)</label>
               <Input
+                id="ssh-keepAliveInterval"
                 type="number"
                 value={form.keepAliveInterval}
                 onChange={(e) => setForm((f) => ({ ...f, keepAliveInterval: e.target.value }))}
@@ -303,8 +311,9 @@ export function SshSection() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Keepalive max retries</label>
+              <label htmlFor="ssh-keepAliveMax" className="text-xs text-muted-foreground">Keepalive max retries</label>
               <Input
+                id="ssh-keepAliveMax"
                 type="number"
                 value={form.keepAliveMax}
                 onChange={(e) => setForm((f) => ({ ...f, keepAliveMax: e.target.value }))}
@@ -313,8 +322,9 @@ export function SshSection() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Connect timeout (sec)</label>
+              <label htmlFor="ssh-connectTimeout" className="text-xs text-muted-foreground">Connect timeout (sec)</label>
               <Input
+                id="ssh-connectTimeout"
                 type="number"
                 value={form.connectTimeout}
                 onChange={(e) => setForm((f) => ({ ...f, connectTimeout: e.target.value }))}
@@ -323,12 +333,12 @@ export function SshSection() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Host key checking</label>
+              <label htmlFor="ssh-hostKeyChecking" className="text-xs text-muted-foreground">Host key checking</label>
               <Select
                 value={form.strictHostKeyChecking || "__none__"}
                 onValueChange={(v) => setForm((f) => ({ ...f, strictHostKeyChecking: v === "__none__" ? "" : v }))}
               >
-                <SelectTrigger className="h-8 text-sm">
+                <SelectTrigger id="ssh-hostKeyChecking" className="h-8 text-sm">
                   <SelectValue placeholder="Default" />
                 </SelectTrigger>
                 <SelectContent>

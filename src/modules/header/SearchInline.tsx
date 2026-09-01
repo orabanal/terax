@@ -196,6 +196,7 @@ export const SearchInline = forwardRef<SearchInlineHandle, Props>(
               className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
               onClick={focus}
               title={tooltipTitle}
+              aria-label={tooltipTitle}
             >
               <HugeiconsIcon icon={Search01Icon} size={15} strokeWidth={1.75} />
             </Button>

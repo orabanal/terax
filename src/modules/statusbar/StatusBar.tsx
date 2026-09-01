@@ -53,7 +53,7 @@ export function StatusBar({
   onToggleComposeBar,
   onSshCwdChange,
 }: Props) {
-  const { summary: gitSummary, sshCwd } = useGitSummary(cwd, leafId, isSSH);
+  const { summary: gitSummary, sshCwd, loading: gitLoading } = useGitSummary(cwd, leafId, isSSH);
 
   const onSshCwdChangeRef = useRef(onSshCwdChange);
   onSshCwdChangeRef.current = onSshCwdChange;
@@ -62,13 +62,14 @@ export function StatusBar({
   }, [sshCwd]);
 
   return (
-    <footer className="flex h-8 shrink-0 items-center justify-between gap-3 border-t border-border/60 bg-card/60 px-3 text-[11px]">
+    <footer className="flex h-7 shrink-0 items-center justify-between gap-3 border-t border-border/60 bg-card/60 px-3 text-[10.5px]">
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <WorkspaceEnvSelector onSelect={onWorkspaceChange} />
         <CwdBreadcrumb cwd={cwd} filePath={filePath} home={home} onCd={onCd} />
         {gitSummary && (
           <GitStatusChip
             summary={gitSummary}
+            loading={gitLoading}
             onClick={onGitClick ? () => onGitClick({
               repoRoot: gitSummary.repoRoot || null,
               sshCwd,
@@ -81,7 +82,7 @@ export function StatusBar({
         {privateActive ? (
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className="flex shrink-0 cursor-default items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10.5px] font-medium text-amber-700 dark:text-amber-400">
+              <span className="flex shrink-0 cursor-default items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-700 transition-all duration-200 dark:text-amber-400 animate-in fade-in-0 slide-in-from-left-2">
                 <HugeiconsIcon icon={IncognitoIcon} size={11} strokeWidth={2} />
                 <span>Private: hidden from AI</span>
               </span>
@@ -100,13 +101,14 @@ export function StatusBar({
               <button
                 type="button"
                 onClick={onToggleComposeBar}
-                className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${
+                aria-label={isComposeBarOpen ? "Close compose bar" : "Open compose bar"}
+                className={`flex h-5 w-5 items-center justify-center rounded-md transition-all duration-200 ${
                   isComposeBarOpen
-                    ? "bg-primary/15 text-primary"
-                    : "text-muted-foreground/64 hover:bg-muted/24 hover:text-foreground/72"
+                    ? "bg-primary/15 text-primary scale-105"
+                    : "text-muted-foreground/70 hover:bg-muted/30 hover:text-foreground hover:scale-105"
                 }`}
               >
-                <HugeiconsIcon icon={Edit02Icon} size={13} strokeWidth={2} />
+                <HugeiconsIcon icon={Edit02Icon} size={12} strokeWidth={2} />
               </button>
             </TooltipTrigger>
             <TooltipContent side="top" className="text-[11px]">

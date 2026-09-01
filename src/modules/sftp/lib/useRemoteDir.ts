@@ -41,6 +41,7 @@ export type RemoteDir = {
   goHome: () => void;
   refresh: () => void;
   connect: (host: SshHost) => void;
+  reconnect: () => void;
   disconnect: () => void;
   showHidden: boolean;
   toggleHidden: () => void;
@@ -72,6 +73,7 @@ export function useRemoteDir(): RemoteDir {
 
   const [sessionId, setSessionId] = useState<number | null>(null);
   const sessionIdRef = useRef<number | null>(null);
+  const lastHostRef = useRef<SshHost | null>(null);
   const [home, setHome] = useState<string | null>(null);
   const [hostName, setHostName] = useState<string | null>(null);
   const [path, setPath] = useState("");
@@ -163,65 +165,89 @@ export function useRemoteDir(): RemoteDir {
     setPath(history[next]);
   }, [index, history]);
 
-  const connect = useCallback(async (host: SshHost) => {
-    // Close previous session if any (use ref for latest value).
-    const prevId = sessionIdRef.current;
-    if (prevId != null) {
-      sessionIdRef.current = null;
-      try {
-        await invoke("sftp_close", { id: prevId });
-      } catch {
-        // ignore
+  const openSession = useCallback(
+    async (host: SshHost, initialPath: string | null) => {
+      lastHostRef.current = host;
+
+      // Close previous session if any (use ref for latest value).
+      const prevId = sessionIdRef.current;
+      if (prevId != null) {
+        sessionIdRef.current = null;
+        try {
+          await invoke("sftp_close", { id: prevId });
+        } catch {
+          // ignore
+        }
       }
-    }
 
-    // Reset state for new connection.
-    setSessionId(null);
-    setStatus("connecting");
-    setError(null);
-    setHostName(host.name);
-    setPath("");
-    setEntries([]);
-    setAllEntries([]);
-    setHistory([]);
-    setIndex(-1);
+      // Reset session-bound state for the new connection.
+      setSessionId(null);
+      setStatus("connecting");
+      setError(null);
+      setHostName(host.name);
+      setEntries([]);
+      setAllEntries([]);
 
-    try {
-      const password = await getSshPassword(host.id);
-      const result = await invoke<SftpOpenResult>("sftp_open", {
-        opts: {
-          host: host.host,
-          port: host.port,
-          username: host.username,
-          authType: host.authType,
-          password,
-          keyPath: host.keyPath,
-          cols: 80,
-          rows: 24,
-          connectTimeout: host.connectTimeout,
-          keepAliveInterval: host.keepAliveInterval,
-          keepAliveMax: host.keepAliveMax,
-        },
-      });
+      try {
+        const password = await getSshPassword(host.id);
+        const result = await invoke<SftpOpenResult>("sftp_open", {
+          opts: {
+            host: host.host,
+            port: host.port,
+            username: host.username,
+            authType: host.authType,
+            password,
+            keyPath: host.keyPath,
+            cols: 80,
+            rows: 24,
+            connectTimeout: host.connectTimeout,
+            keepAliveInterval: host.keepAliveInterval,
+            keepAliveMax: host.keepAliveMax,
+          },
+        });
 
-      const normalizedHome = normalizePath(result.home);
-      sessionIdRef.current = result.id;
-      setSessionId(result.id);
-      setHome(normalizedHome);
-      setHistory([normalizedHome]);
-      setIndex(0);
-      setPath(normalizedHome);
-    } catch (e) {
-      setError(typeof e === "string" ? e : String(e));
-      setStatus("error");
-      setHostName(null);
-    }
-  }, []);
+        const normalizedHome = normalizePath(result.home);
+         // Restore the path the user was browsing. SFTP paths are absolute, so
+         // use it directly; fall back to home for a relative or empty path.
+         const target = initialPath && initialPath.startsWith("/")
+            ? normalizePath(initialPath)
+            : normalizedHome;
 
-  const disconnect = useCallback(async () => {
-    const sid = sessionIdRef.current;
-    sessionIdRef.current = null;
-    if (sid != null) {
+        sessionIdRef.current = result.id;
+        setSessionId(result.id);
+        setHome(normalizedHome);
+        setHistory(target === normalizedHome ? [normalizedHome] : [normalizedHome, target]);
+        setIndex(target === normalizedHome ? 0 : 1);
+        setPath(target);
+      } catch (e) {
+        setError(typeof e === "string" ? e : String(e));
+        setStatus("error");
+        setHostName(null);
+      }
+    },
+    [],
+  );
+
+  const connect = useCallback(
+    (host: SshHost) => void openSession(host, null),
+    [openSession],
+  );
+
+  // Reconnect with the last host, restoring the path the user was browsing
+  // before the connection dropped. The previous session id is stale, so a
+  // fresh sftp_open is required; refresh() alone can only re-list against a
+  // dead session.
+  const reconnect = useCallback(() => {
+    const host = lastHostRef.current;
+    if (host == null) return;
+    void openSession(host, path);
+  }, [openSession, path]);
+
+   const disconnect = useCallback(async () => {
+     const sid = sessionIdRef.current;
+     sessionIdRef.current = null;
+     lastHostRef.current = null;
+     if (sid != null) {
       try {
         await invoke("sftp_close", { id: sid });
       } catch {
@@ -313,9 +339,10 @@ export function useRemoteDir(): RemoteDir {
     goBack,
     goForward,
     goHome,
-    refresh,
-    connect,
-    disconnect,
+  refresh,
+  connect,
+  reconnect,
+  disconnect,
     showHidden,
     toggleHidden,
     mkdir,

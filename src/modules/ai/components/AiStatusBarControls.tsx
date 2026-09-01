@@ -7,15 +7,16 @@ export function AiOpenButton({ onOpen }: { onOpen: () => void }) {
     <button
       type="button"
       onClick={onOpen}
+      aria-label="Open AI agent panel"
       className={cn(
-        "flex h-6 items-center gap-1.5 rounded-md border border-border/60 bg-card px-2 text-xs",
-        "text-muted-foreground transition-colors hover:border-border hover:bg-accent hover:text-foreground",
-        "animate-in slide-in-from-top-2 duration-200 ease-out",
+        "flex h-5 items-center gap-1.5 rounded-md border border-border/60 bg-card px-2 text-[10.5px]",
+        "text-muted-foreground transition-all duration-200 hover:border-border hover:bg-accent hover:text-foreground hover:scale-105",
+        "animate-in slide-in-from-top-2 duration-200 ease-out active:scale-95",
       )}
       title="Open AI agent"
     >
       <span>Open AI agent</span>
-      <Kbd className="h-4 min-w-4 px-1">{fmtShortcut(MOD_KEY, "I")}</Kbd>
+      <Kbd className="h-3.5 min-w-3.5 px-0.5 text-[9px]">{fmtShortcut(MOD_KEY, "I")}</Kbd>
     </button>
   );
 }

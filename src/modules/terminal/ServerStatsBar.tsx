@@ -6,6 +6,7 @@ import {
   RamMemoryIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { memo } from "react";
 import type { ServerStats } from "./lib/useServerStats";
 
 export const STATS_BAR_HEIGHT = 28;
@@ -22,7 +23,7 @@ type Props = {
   emptyLabel?: string;
 };
 
-export function ServerStatsBar({ stats, emptyLabel = "Local terminal" }: Props) {
+export const ServerStatsBar = memo(function ServerStatsBar({ stats, emptyLabel = "Local terminal" }: Props) {
   const hasData =
     stats !== null &&
     (stats.cpu !== null || stats.memUsed !== null || stats.diskPercent !== null);
@@ -106,4 +107,4 @@ export function ServerStatsBar({ stats, emptyLabel = "Local terminal" }: Props) 
       )}
     </div>
   );
-}
+});

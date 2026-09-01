@@ -59,17 +59,26 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(
     const showServerStats = usePreferencesStore((s) => s.showServerStats);
     const serverStatsInterval = usePreferencesStore((s) => s.serverStatsInterval);
 
-    // Poll isSessionConnected continuously so sshConnected tracks the real
-    // connection state through disconnects and reconnects.
+    // Track SSH connection state via events instead of polling.
     const [sshConnected, setSshConnected] = useState(() =>
       sshHost ? isSessionConnected(leafId) : false,
     );
     useEffect(() => {
       if (!sshHost) return;
-      const id = setInterval(() => {
-        setSshConnected(isSessionConnected(leafId));
-      }, 500);
-      return () => clearInterval(id);
+
+      // Initial state check
+      setSshConnected(isSessionConnected(leafId));
+
+      // Listen to SSH activity events (fired on connect/disconnect)
+      const handleActivity = (e: Event) => {
+        const detail = (e as CustomEvent).detail;
+        if (detail?.leafId === leafId) {
+          setSshConnected(isSessionConnected(leafId));
+        }
+      };
+
+      window.addEventListener("terax:ssh-activity", handleActivity);
+      return () => window.removeEventListener("terax:ssh-activity", handleActivity);
     }, [leafId, sshHost]);
 
     const statsEnabled = !!sshHost && showServerStats && sshConnected;

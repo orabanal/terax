@@ -93,6 +93,7 @@ type Props = {
   onUp?: () => void;
   onHome?: () => void;
   onRefresh?: () => void;
+  onReconnect?: () => void;
   canGoBack?: boolean;
   canGoForward?: boolean;
   showHidden?: boolean;
@@ -291,6 +292,7 @@ export function SftpPane({
   onUp,
   onHome,
   onRefresh,
+  onReconnect,
   canGoBack,
   canGoForward,
   showHidden,
@@ -1150,14 +1152,14 @@ export function SftpPane({
                         Error: {error || "Unknown error"}
                       </div>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs"
-                      onClick={onRefresh}
-                    >
-                      Retry
-                    </Button>
+                      <Button
+                       variant="outline"
+                       size="sm"
+                       className="h-7 text-xs"
+                       onClick={onReconnect ?? onRefresh}
+                      >
+                       Retry
+                      </Button>
                   </div>
                 )}
               </div>

@@ -386,24 +386,28 @@ export function TabBar({
           <button
             type="button"
             onClick={() => scrollTabs("left")}
-            className="absolute left-0 top-0 bottom-0 z-10 flex w-8 items-center justify-center bg-gradient-to-r from-background via-background/80 to-transparent text-muted-foreground hover:text-foreground transition-colors"
+            className="absolute left-0 top-0 bottom-0 z-10 flex w-8 items-center justify-center bg-gradient-to-r from-background via-background/80 to-transparent text-muted-foreground hover:text-foreground transition-all duration-200"
             aria-label="Scroll tabs left"
           >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M8 2L4 6L8 10" />
-            </svg>
+            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-card/95 shadow-sm ring-1 ring-border/50 backdrop-blur-sm hover:bg-accent hover:ring-border hover:scale-110 transition-all duration-200">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8 2L4 6L8 10" />
+              </svg>
+            </div>
           </button>
         )}
         {canScrollRight && (
           <button
             type="button"
             onClick={() => scrollTabs("right")}
-            className="absolute right-0 top-0 bottom-0 z-10 flex w-8 items-center justify-center bg-gradient-to-l from-background via-background/80 to-transparent text-muted-foreground hover:text-foreground transition-colors"
+            className="absolute right-0 top-0 bottom-0 z-10 flex w-8 items-center justify-center bg-gradient-to-l from-background via-background/80 to-transparent text-muted-foreground hover:text-foreground transition-all duration-200"
             aria-label="Scroll tabs right"
           >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M4 2L8 6L4 10" />
-            </svg>
+            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-card/95 shadow-sm ring-1 ring-border/50 backdrop-blur-sm hover:bg-accent hover:ring-border hover:scale-110 transition-all duration-200">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 2L8 6L4 10" />
+              </svg>
+            </div>
           </button>
         )}
       <div
