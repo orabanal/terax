@@ -120,13 +120,96 @@ export const PROVIDERS: readonly ProviderInfo[] = [
   },
 ] as const;
 
+/** Wire protocol used by a custom endpoint.
+ *  OpenCode Go exposes the same base `…/v1` over three protocols:
+ *  - `chat`: `POST …/v1/chat/completions` (`@ai-sdk/openai-compatible`)
+ *  - `responses`: `POST …/v1/responses` (`@ai-sdk/openai`, Responses API)
+ *  - `messages`: `POST …/v1/messages` (`@ai-sdk/anthropic`, Messages API) */
+export type CustomEndpointApi = "chat" | "responses" | "messages";
+
 export type CustomEndpoint = {
   id: string;
   name: string;
   baseURL: string;
   modelIds: string[];
   contextLimit: number;
+  /** Custom HTTP headers sent with every request to this endpoint
+   *  (e.g. `x-opencode-session` for OpenCode Go, provider-specific keys). */
+  headers?: Record<string, string>;
+  /** Wire protocol. `undefined`/omitted = auto-detect from the URL suffix. */
+  api?: CustomEndpointApi | "auto";
 };
+
+/** Infer the wire protocol from a URL suffix (`…/responses`,
+ *  `…/messages`, `…/chat/completions`). Defaults to `chat`. */
+export function inferCompatApi(baseURL: string): CustomEndpointApi {
+  const u = baseURL.trim().toLowerCase().replace(/\/+$/, "");
+  if (u.endsWith("/responses")) return "responses";
+  if (u.endsWith("/messages")) return "messages";
+  return "chat";
+}
+
+/** Resolve the effective protocol: explicit setting wins, else auto-detect. */
+export function resolveCompatApi(
+  baseURL: string,
+  api?: CustomEndpointApi | "auto",
+): CustomEndpointApi {
+  if (api && api !== "auto") return api;
+  return inferCompatApi(baseURL);
+}
+
+/** Strip the protocol suffix (`/chat/completions`, `/responses`, `/messages`)
+ *  so the URL is a clean SDK prefix (`…/v1`). Idempotent — a bare `…/v1`
+ *  passes through unchanged. */
+export function normalizeCompatBaseURL(baseURL: string): string {
+  const trimmed = baseURL.trim().replace(/\/+$/, "");
+  const lower = trimmed.toLowerCase();
+  for (const suffix of ["/chat/completions", "/responses", "/messages"]) {
+    if (lower.endsWith(suffix)) return trimmed.slice(0, -suffix.length);
+  }
+  return trimmed;
+}
+
+/** Effective wire provider for a model. Compat endpoints speaking `responses`
+ *  behave like OpenAI and ones speaking `messages` like Anthropic (cache
+ *  breakpoints, reasoning mapping). Everything else keeps its registry
+ *  provider. */
+export function resolveEffectiveProvider(
+  modelId: string,
+  endpoints: readonly CustomEndpoint[],
+  fallback: ProviderId,
+): ProviderId {
+  if (!isCompatModelId(modelId)) return fallback;
+  const ep = endpoints.find(
+    (e) => e.id === parseCompatModelId(modelId)?.endpointId,
+  );
+  if (!ep) return fallback;
+  const api = resolveCompatApi(ep.baseURL, ep.api);
+  if (api === "messages") return "anthropic";
+  if (api === "responses") return "openai";
+  return fallback;
+}
+
+/** Shallow-merge provider-options maps (one level per provider key). Later
+ *  maps win per field; `undefined` maps are skipped. */
+// biome-ignore lint/suspicious/noExplicitAny: provider options are provider-specific JSON
+export function mergeProviderOptions(
+  ...maps: Array<Record<string, Record<string, any>> | undefined>
+  // biome-ignore lint/suspicious/noExplicitAny: provider options are provider-specific JSON
+): Record<string, Record<string, any>> | undefined {
+  let out:
+    // biome-ignore lint/suspicious/noExplicitAny: provider options are provider-specific JSON
+    | Record<string, Record<string, any>>
+    | undefined;
+  for (const m of maps) {
+    if (!m) continue;
+    out ??= {};
+    for (const [k, v] of Object.entries(m)) {
+      out[k] = { ...(out[k] ?? {}), ...v };
+    }
+  }
+  return out;
+}
 
 const COMPAT_MODEL_PREFIX = "compat-";
 /** Length of the 8-char hex id produced by `crypto.randomUUID().slice(0, 8)`. */

@@ -154,8 +154,7 @@ const ToolImpl = ({
           "text-[13px] transition-all duration-200",
           "hover:bg-muted/50 hover:border-border/60 disabled:cursor-default",
           "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-          state === "output-available" && "bg-muted/25 border-emerald-500/30",
-          state === "output-error" && "bg-destructive/10 border-destructive/40",
+          "group-data-[state=open]/tool:bg-muted/40 group-data-[state=open]/tool:border-border/50",
         )}
       >
         <HugeiconsIcon
@@ -177,18 +176,18 @@ const ToolImpl = ({
           <span className="flex shrink-0 size-1.5 rounded-full bg-amber-500 animate-pulse" />
         )}
         {state === "output-available" && (
-          <span className="flex shrink-0 size-5 items-center justify-center rounded-full border border-emerald-500 bg-transparent">
-            <HugeiconsIcon icon={Tick01Icon} size={12} strokeWidth={2} className="text-emerald-500" />
+          <span className="flex shrink-0 size-3 items-center justify-center rounded-full border-[0.5px] border-emerald-500 bg-transparent">
+            <HugeiconsIcon icon={Tick01Icon} size={8} strokeWidth={2} className="text-emerald-500" />
           </span>
         )}
         {state === "output-error" && (
-          <span className="flex shrink-0 size-5 items-center justify-center rounded-full border border-destructive bg-transparent">
-            <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} className="text-destructive" />
+          <span className="flex shrink-0 size-3 items-center justify-center rounded-full border-[0.5px] border-destructive bg-transparent">
+            <HugeiconsIcon icon={Cancel01Icon} size={8} strokeWidth={2} className="text-destructive" />
           </span>
         )}
         {state === "output-denied" && (
-          <span className="flex shrink-0 size-5 items-center justify-center rounded-full border border-orange-500 bg-transparent">
-            <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} className="text-orange-500" />
+          <span className="flex shrink-0 size-3 items-center justify-center rounded-full border-[0.5px] border-orange-500 bg-transparent">
+            <HugeiconsIcon icon={Cancel01Icon} size={8} strokeWidth={2} className="text-orange-500" />
           </span>
         )}
       </CollapsibleTrigger>

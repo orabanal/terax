@@ -26,6 +26,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowRight01Icon,
   CodeIcon,
+  CopyIcon,
   File01Icon,
   HashtagIcon,
   TerminalIcon,
@@ -41,7 +42,7 @@ import type {
   UIMessage,
   UIMessagePart,
 } from "ai";
-import { memo, useCallback, useMemo } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { AiToolApproval } from "./AiToolApproval";
 
 function CommandSnippet({ name }: { name: string }) {
@@ -612,11 +613,42 @@ const RenderedPart = memo(function RenderedPart({
   onApproval: (id: string, approved: boolean) => void;
   streaming: boolean;
 }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async () => {
+    if (part.type === "text") {
+      const text = (part as unknown as { text: string }).text;
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }, [part]);
+
   if (part.type === "text") {
     return (
-      <MessageResponse streaming={streaming}>
-        {(part as unknown as { text: string }).text}
-      </MessageResponse>
+      <div className="group/response relative">
+        <MessageResponse streaming={streaming}>
+          {(part as unknown as { text: string }).text}
+        </MessageResponse>
+        {!streaming && (
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="absolute right-2 top-2 flex size-6 items-center justify-center rounded-md bg-muted/80 opacity-0 backdrop-blur-sm transition-all duration-200 hover:bg-muted hover:scale-110 group-hover/response:opacity-100"
+            aria-label="Copiar respuesta"
+          >
+            <HugeiconsIcon
+              icon={CopyIcon}
+              size={12}
+              strokeWidth={1.75}
+              className={cn(
+                "transition-colors duration-200",
+                copied ? "text-emerald-500" : "text-muted-foreground"
+              )}
+            />
+          </button>
+        )}
+      </div>
     );
   }
 

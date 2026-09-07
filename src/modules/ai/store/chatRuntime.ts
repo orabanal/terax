@@ -154,6 +154,7 @@ function makeChat(sessionId: string): Chat<UIMessage> {
       usePreferencesStore.getState().openrouterModelIds,
     getCustomEndpoints: () => usePreferencesStore.getState().customEndpoints,
     getCustomEndpointKeys: () => useChatStore.getState().customEndpointKeys,
+    getSessionId: () => sessionId,
     onStep: (step) => {
       useChatStore.getState().patchAgentMetaForSession(sessionId, { step });
     },

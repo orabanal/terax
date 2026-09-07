@@ -4,11 +4,16 @@ import {
   endpointIdFromCompatModel,
   getModelContextLimit,
   indexedLocalModelId,
+  inferCompatApi,
   isCompatModelId,
+  mergeProviderOptions,
   migrateLegacyCompatEndpoint,
   modelKeepsReasoning,
+  normalizeCompatBaseURL,
   parseCompatModelId,
   parseIndexedLocalModelId,
+  resolveCompatApi,
+  resolveEffectiveProvider,
   resolveModel,
   type CustomEndpoint,
 } from "./config";
@@ -151,5 +156,119 @@ describe("migrateLegacyCompatEndpoint", () => {
   it("skips migration when base URL or model id is missing", () => {
     expect(migrateLegacyCompatEndpoint("", "m", 1, "x")).toEqual([]);
     expect(migrateLegacyCompatEndpoint("u", "  ", 1, "x")).toEqual([]);
+  });
+});
+
+describe("compat api detection", () => {
+  it("infers chat by default", () => {
+    expect(inferCompatApi("https://api.example.com/v1")).toBe("chat");
+    expect(
+      inferCompatApi("https://opencode.ai/zen/go/v1/chat/completions"),
+    ).toBe("chat");
+  });
+
+  it("infers responses and messages from full REST URLs", () => {
+    expect(inferCompatApi("https://opencode.ai/zen/go/v1/responses")).toBe(
+      "responses",
+    );
+    expect(inferCompatApi("https://opencode.ai/zen/go/v1/messages")).toBe(
+      "messages",
+    );
+  });
+
+  it("explicit api wins over the URL suffix", () => {
+    expect(
+      resolveCompatApi("https://opencode.ai/zen/go/v1/responses", "chat"),
+    ).toBe("chat");
+    expect(
+      resolveCompatApi("https://opencode.ai/zen/go/v1", "responses"),
+    ).toBe("responses");
+    expect(resolveCompatApi("https://opencode.ai/zen/go/v1", undefined)).toBe(
+      "chat",
+    );
+  });
+
+  it("normalizes full REST URLs to the …/v1 SDK prefix", () => {
+    expect(
+      normalizeCompatBaseURL("https://opencode.ai/zen/go/v1/chat/completions"),
+    ).toBe("https://opencode.ai/zen/go/v1");
+    expect(
+      normalizeCompatBaseURL("https://opencode.ai/zen/go/v1/responses"),
+    ).toBe("https://opencode.ai/zen/go/v1");
+    expect(
+      normalizeCompatBaseURL("https://opencode.ai/zen/go/v1/messages"),
+    ).toBe("https://opencode.ai/zen/go/v1");
+    expect(normalizeCompatBaseURL("https://api.example.com/v1/")).toBe(
+      "https://api.example.com/v1",
+    );
+  });
+});
+
+describe("resolveEffectiveProvider", () => {
+  const responsesEp: CustomEndpoint = {
+    id: "resp1234",
+    name: "Go Responses",
+    baseURL: "https://opencode.ai/zen/go/v1/responses",
+    modelIds: ["muse-spark-1.3-contributor"],
+    contextLimit: 128_000,
+  };
+  const messagesEp: CustomEndpoint = {
+    id: "msg12345",
+    name: "Go Messages",
+    baseURL: "https://opencode.ai/zen/go/v1/messages",
+    modelIds: ["qwen3.8-max"],
+    contextLimit: 128_000,
+  };
+
+  it("maps responses endpoints to openai and messages to anthropic", () => {
+    expect(
+      resolveEffectiveProvider(
+        compatModelIdForEndpoint(responsesEp.id, 0),
+        [responsesEp],
+        "openai-compatible",
+      ),
+    ).toBe("openai");
+    expect(
+      resolveEffectiveProvider(
+        compatModelIdForEndpoint(messagesEp.id, 0),
+        [messagesEp],
+        "openai-compatible",
+      ),
+    ).toBe("anthropic");
+  });
+
+  it("keeps the fallback for chat endpoints, static models and missing endpoints", () => {
+    expect(
+      resolveEffectiveProvider(
+        compatModelIdForEndpoint(endpoint.id, 0),
+        [endpoint],
+        "openai-compatible",
+      ),
+    ).toBe("openai-compatible");
+    expect(resolveEffectiveProvider("gpt-5.4-mini", [], "openai")).toBe(
+      "openai",
+    );
+    expect(
+      resolveEffectiveProvider(
+        compatModelIdForEndpoint("deadbeef", 0),
+        [],
+        "openai-compatible",
+      ),
+    ).toBe("openai-compatible");
+  });
+});
+
+describe("mergeProviderOptions", () => {
+  it("merges per provider key with later maps winning per field", () => {
+    expect(
+      mergeProviderOptions(
+        { openai: { store: false } },
+        { openai: { reasoningEffort: "low" } },
+      ),
+    ).toEqual({ openai: { store: false, reasoningEffort: "low" } });
+    expect(mergeProviderOptions(undefined, undefined)).toBeUndefined();
+    expect(mergeProviderOptions({ anthropic: { a: 1 } })).toEqual({
+      anthropic: { a: 1 },
+    });
   });
 });

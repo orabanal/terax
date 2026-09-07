@@ -242,12 +242,31 @@ function migrateModelIds(
 }
 
 /** Migrate a stored CustomEndpoint from the old `modelId: string` shape to
- *  the new `modelIds: string[]` shape. */
+ *  the new `modelIds: string[]` shape. Also normalizes the optional
+ *  `headers` map (drops empty keys/values from older hand-edited stores). */
 function migrateEndpointModelIds(ep: CustomEndpoint): CustomEndpoint {
-  if (Array.isArray(ep.modelIds)) return ep;
-  // Old shape: modelId is a string on the stored object (cast through unknown).
-  const old = (ep as unknown as { modelId?: string }).modelId;
-  return { ...ep, modelIds: old?.trim() ? [old.trim()] : [] };
+  let out = ep;
+  if (!Array.isArray(ep.modelIds)) {
+    // Old shape: modelId is a string on the stored object (cast through unknown).
+    const old = (ep as unknown as { modelId?: string }).modelId;
+    out = { ...out, modelIds: old?.trim() ? [old.trim()] : [] };
+  }
+  if (out.headers && typeof out.headers === "object") {
+    const clean: Record<string, string> = {};
+    for (const [k, v] of Object.entries(out.headers)) {
+      const key = k.trim();
+      const val = typeof v === "string" ? v.trim() : String(v ?? "").trim();
+      if (key && val) clean[key] = val;
+    }
+    out = { ...out, headers: clean };
+  }
+  const api = (out as CustomEndpoint).api;
+  if (api !== undefined && api !== "auto" && api !== "chat" && api !== "responses" && api !== "messages") {
+    const { api: _drop, ...rest } = out as CustomEndpoint & { api?: unknown };
+    void _drop;
+    out = rest;
+  }
+  return out;
 }
 
 // LazyStore.onChange only fires within the writing process. The settings

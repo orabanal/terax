@@ -14,7 +14,9 @@ import {
   PROVIDERS,
   compatModelIdForEndpoint,
   providerNeedsKey,
+  resolveCompatApi,
   type CustomEndpoint,
+  type CustomEndpointApi,
   type ProviderId,
   type ProviderInfo,
 } from "@/modules/ai/config";
@@ -824,6 +826,49 @@ function CustomEndpointCard({
             </div>
           </FieldRow>
 
+          <FieldRow label="API">
+            <div className="flex flex-1 flex-col gap-1">
+              <div className="flex flex-1 gap-1.5">
+                {(
+                  [
+                    ["auto", "Auto"],
+                    ["chat", "Chat"],
+                    ["responses", "Responses"],
+                    ["messages", "Messages"],
+                  ] as const
+                ).map(([v, label]) => {
+                  const active = (endpoint.api ?? "auto") === v;
+                  return (
+                    <Button
+                      key={v}
+                      size="sm"
+                      variant={active ? "default" : "outline"}
+                      onClick={() =>
+                        void onUpdate({
+                          api: v as CustomEndpointApi | "auto",
+                        })
+                      }
+                      className="h-7 px-2.5 text-[11px]"
+                    >
+                      {label}
+                    </Button>
+                  );
+                })}
+              </div>
+              <span className="text-[10.5px] leading-relaxed text-muted-foreground/80">
+                Detectada:{" "}
+                <span className="font-mono">
+                  {resolveCompatApi(endpoint.baseURL || urlDraft, endpoint.api)}
+                </span>{" "}
+                — Chat: <span className="font-mono">…/chat/completions</span>,
+                Responses: <span className="font-mono">…/responses</span>,
+                Messages: <span className="font-mono">…/messages</span>.
+                Para OpenCode Go crea un endpoint por API con la misma base{" "}
+                <span className="font-mono">…/zen/go/v1</span>.
+              </span>
+            </div>
+          </FieldRow>
+
           <ModelIdsField
             modelIds={endpoint.modelIds}
             onChange={async (v) => onUpdate({ modelIds: v })}
@@ -891,6 +936,19 @@ function CustomEndpointCard({
               </div>
             )}
           </FieldRow>
+
+          <FieldRow label="Headers">
+            <HeadersField
+              headers={endpoint.headers ?? {}}
+              onChange={async (v) => onUpdate({ headers: v })}
+            />
+          </FieldRow>
+          <p className="-mt-1 ml-19 text-[10.5px] leading-relaxed text-muted-foreground/80">
+            Cabeceras extra en cada petición. Terax ya envía{" "}
+            <span className="font-mono">x-opencode-session</span> (estable por
+            conversación) y un User-Agent propio, que exige OpenCode Go
+            (Console Go).
+          </p>
 
           <StatusLine status={testStatus} />
         </div>
@@ -975,6 +1033,91 @@ function ModelIdsField({
           variant="outline"
           onClick={add}
           disabled={!draft.trim() || modelIds.includes(draft.trim())}
+          className="h-8 px-3 text-[11px]"
+        >
+          Add
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function HeadersField({
+  headers,
+  onChange,
+}: {
+  headers: Record<string, string>;
+  onChange: (v: Record<string, string>) => Promise<void>;
+}) {
+  const [keyDraft, setKeyDraft] = useState("");
+  const [valueDraft, setValueDraft] = useState("");
+  const entries = Object.entries(headers);
+
+  const add = () => {
+    const k = keyDraft.trim();
+    const v = valueDraft.trim();
+    if (!k || !v || headers[k] === v) return;
+    void onChange({ ...headers, [k]: v });
+    setKeyDraft("");
+    setValueDraft("");
+  };
+
+  const remove = (k: string) => {
+    const next = { ...headers };
+    delete next[k];
+    void onChange(next);
+  };
+
+  return (
+    <div className="flex flex-1 flex-col gap-1.5">
+      {entries.map(([k, v]) => (
+        <div key={k} className="flex items-center gap-1.5">
+          <code className="flex-1 truncate rounded bg-muted/40 px-2 py-1 font-mono text-[11px] text-muted-foreground">
+            {k}: {v}
+          </code>
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => remove(k)}
+            title="Remove header"
+            className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
+          >
+            <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={1.75} />
+          </Button>
+        </div>
+      ))}
+      <div className="flex gap-1.5">
+        <Input
+          value={keyDraft}
+          onChange={(e) => setKeyDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              add();
+            }
+          }}
+          placeholder="X-Custom-Header"
+          spellCheck={false}
+          className="h-8 flex-1 font-mono text-[11.5px]"
+        />
+        <Input
+          value={valueDraft}
+          onChange={(e) => setValueDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              add();
+            }
+          }}
+          placeholder="valor"
+          spellCheck={false}
+          className="h-8 flex-1 font-mono text-[11.5px]"
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={add}
+          disabled={!keyDraft.trim() || !valueDraft.trim()}
           className="h-8 px-3 text-[11px]"
         >
           Add

@@ -490,7 +490,7 @@ function AiSidebarSession({
           {/* Messages */}
           <div className="flex min-h-0 flex-1 flex-col [&_.text-sm]:text-[11px] [&_p]:leading-relaxed">
             {helpers.messages.length === 0 ? (
-              <EmptyState />
+              <EmptyState onSendMessage={(text) => void sendMessage(sessionId, text)} />
             ) : (
               <AiChatView
                 sessionId={sessionId}
@@ -627,7 +627,7 @@ function AiSidebarSession({
   );
 }
 
-function EmptyState() {
+function EmptyState({ onSendMessage }: { onSendMessage: (text: string) => void }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-6 text-center gap-6 animate-in fade-in-0 duration-500">
       <div className="flex flex-col items-center gap-3">
@@ -635,35 +635,38 @@ function EmptyState() {
           <HugeiconsIcon icon={BrainIcon} size={32} strokeWidth={1.5} className="text-primary" />
         </div>
         <div className="flex flex-col gap-1.5">
-          <h3 className="text-sm font-medium text-foreground">AI Agent Ready</h3>
+          <h3 className="text-sm font-medium text-foreground">Agente IA Listo</h3>
           <p className="text-[12px] text-muted-foreground/60 leading-relaxed">
-            Ask anything. The agent has access to your terminal, files, and shell.
+            Pregunta lo que necesites. El agente tiene acceso a tu terminal, archivos y shell.
           </p>
         </div>
       </div>
       <div className="flex flex-col gap-2 w-full">
-        <p className="text-[10px] uppercase tracking-wider text-muted-foreground/50 font-medium">Quick start</p>
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground/50 font-medium">Inicio rápido</p>
         <div className="flex flex-col gap-1.5">
           <button
             type="button"
+            onClick={() => onSendMessage("Explica esta salida de terminal")}
             className="group flex items-center gap-2 rounded-lg border border-border/40 bg-muted/20 px-3 py-2 text-left transition-all duration-200 hover:border-border hover:bg-muted/40 hover:scale-[1.02] active:scale-[0.98]"
           >
             <HugeiconsIcon icon={TerminalIcon} size={14} strokeWidth={1.75} className="shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
-            <span className="text-[11px] text-muted-foreground group-hover:text-foreground transition-colors">Explain this terminal output</span>
+            <span className="text-[11px] text-muted-foreground group-hover:text-foreground transition-colors">Explica esta salida de terminal</span>
           </button>
           <button
             type="button"
+            onClick={() => onSendMessage("Revisa este archivo de código")}
             className="group flex items-center gap-2 rounded-lg border border-border/40 bg-muted/20 px-3 py-2 text-left transition-all duration-200 hover:border-border hover:bg-muted/40 hover:scale-[1.02] active:scale-[0.98]"
           >
             <HugeiconsIcon icon={File01Icon} size={14} strokeWidth={1.75} className="shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
-            <span className="text-[11px] text-muted-foreground group-hover:text-foreground transition-colors">Review this code file</span>
+            <span className="text-[11px] text-muted-foreground group-hover:text-foreground transition-colors">Revisa este archivo de código</span>
           </button>
           <button
             type="button"
+            onClick={() => onSendMessage("Ayúdame a depurar un problema")}
             className="group flex items-center gap-2 rounded-lg border border-border/40 bg-muted/20 px-3 py-2 text-left transition-all duration-200 hover:border-border hover:bg-muted/40 hover:scale-[1.02] active:scale-[0.98]"
           >
             <HugeiconsIcon icon={ZapIcon} size={14} strokeWidth={1.75} className="shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
-            <span className="text-[11px] text-muted-foreground group-hover:text-foreground transition-colors">Help me debug an issue</span>
+            <span className="text-[11px] text-muted-foreground group-hover:text-foreground transition-colors">Ayúdame a depurar un problema</span>
           </button>
         </div>
       </div>

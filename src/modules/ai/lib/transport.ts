@@ -62,9 +62,13 @@ type Deps = {
   getOpenaiCompatibleBaseURL?: () => string | undefined;
   getOpenaiCompatibleModelId?: () => string | undefined;
   getOpenaiCompatibleContextLimit?: () => number | undefined;
+  getOpenaiCompatibleHeaders?: () => Record<string, string> | undefined;
+  getOpenaiCompatibleApi?: () => import("../config").CustomEndpointApi | "auto" | undefined;
   getOpenrouterModelIds?: () => string[];
   getCustomEndpoints?: () => readonly CustomEndpoint[];
   getCustomEndpointKeys?: () => CustomEndpointKeys;
+  /** Stable conversation id — forwarded as `x-opencode-session`. */
+  getSessionId?: () => string | undefined;
   onStep?: (step: string | null) => void;
   onUsage?: (delta: AgentUsageDelta) => void;
   onCompact?: (info: { droppedCount: number }) => void;
@@ -106,9 +110,12 @@ export function createContextAwareTransport(deps: Deps) {
       openaiCompatibleBaseURL: deps.getOpenaiCompatibleBaseURL?.(),
       openaiCompatibleModelId: deps.getOpenaiCompatibleModelId?.(),
       openaiCompatibleContextLimit: deps.getOpenaiCompatibleContextLimit?.(),
+      openaiCompatibleHeaders: deps.getOpenaiCompatibleHeaders?.(),
+      openaiCompatibleApi: deps.getOpenaiCompatibleApi?.(),
       openrouterModelIds: deps.getOpenrouterModelIds?.(),
       customEndpoints: deps.getCustomEndpoints?.(),
       customEndpointKeys: deps.getCustomEndpointKeys?.(),
+      sessionId: deps.getSessionId?.(),
       planMode: deps.getPlanMode?.(),
       reasoningEffort: deps.getReasoningEffort?.() ?? "auto",
       projectMemory,

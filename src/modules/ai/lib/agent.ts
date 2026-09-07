@@ -13,15 +13,20 @@ import {
   isCompatModelId,
   LMSTUDIO_DEFAULT_BASE_URL,
   MAX_AGENT_STEPS,
+  mergeProviderOptions,
   MLX_DEFAULT_BASE_URL,
   modelKeepsReasoning,
+  normalizeCompatBaseURL,
   OLLAMA_DEFAULT_BASE_URL,
   parseCompatModelId,
   parseIndexedLocalModelId,
   providerNeedsKey,
+  resolveCompatApi,
+  resolveEffectiveProvider,
   resolveModel,
   selectSystemPrompt,
   type CustomEndpoint,
+  type CustomEndpointApi,
   type ProviderId,
 } from "../config";
 import type { ReasoningEffort } from "../store/chatStore";
@@ -72,7 +77,14 @@ export type BuildModelOptions = {
   mlxBaseURL?: string;
   ollamaBaseURL?: string;
   openaiCompatibleBaseURL?: string;
+  openaiCompatibleHeaders?: Record<string, string>;
+  openaiCompatibleApi?: CustomEndpointApi | "auto";
+  /** Stable id per conversation — sent as `x-opencode-session` so gateways
+   *  like OpenCode Go can route + cache efficiently. */
+  sessionId?: string;
 };
+
+const TERAX_USER_AGENT = "Terax/9.7.3";
 
 const modelCache = new Map<string, LanguageModel>();
 
@@ -93,8 +105,11 @@ export async function buildLanguageModel(
   const mlxURL = options.mlxBaseURL ?? MLX_DEFAULT_BASE_URL;
   const ollamaURL = options.ollamaBaseURL ?? OLLAMA_DEFAULT_BASE_URL;
   const compatURL = options.openaiCompatibleBaseURL ?? "";
+  const compatHeaders = options.openaiCompatibleHeaders ?? {};
+  const compatApi = resolveCompatApi(compatURL, options.openaiCompatibleApi);
+  const sessionId = options.sessionId?.trim() ?? "";
   const epKey = customEndpointKey ?? "";
-  const cacheKey = `${provider} ${key} ${epKey} ${resolvedModelId} ${lmstudioURL} ${mlxURL} ${ollamaURL} ${compatURL}`;
+  const cacheKey = `${provider} ${key} ${epKey} ${resolvedModelId} ${lmstudioURL} ${mlxURL} ${ollamaURL} ${compatURL} ${compatApi} ${sessionId} ${JSON.stringify(compatHeaders)}`;
   const hit = modelCache.get(cacheKey);
   if (hit) return hit;
 
@@ -170,14 +185,57 @@ export async function buildLanguageModel(
           "OpenAI-compatible provider has no base URL. Set it in Settings → Models.",
         );
       }
-      const { createOpenAICompatible } =
-        await import("@ai-sdk/openai-compatible");
-      built = createOpenAICompatible({
-        name: "openai-compatible",
-        baseURL: compatURL,
-        apiKey: epKey || key || undefined,
-        fetch: localProxyFetch,
-      })(resolvedModelId);
+      // Custom headers configured per endpoint + a stable session id.
+      // OpenCode Go (Console Go) *requires* `x-opencode-session` for routing;
+      // without it requests fail with "missing x-opencode-session". We always
+      // send it when we know the conversation id, and let an explicit custom
+      // header override it. A distinct User-Agent identifies Terax instead of
+      // a generic SDK name, as recommended by OpenCode Go docs.
+      const headers: Record<string, string> = {
+        "User-Agent": TERAX_USER_AGENT,
+        ...compatHeaders,
+      };
+      if (sessionId && !headers["x-opencode-session"]) {
+        headers["x-opencode-session"] = sessionId;
+      }
+      // The stored URL may be the full REST path from a provider table
+      // (…/chat/completions, …/responses, …/messages); SDKs want the …/v1 prefix.
+      const prefix = normalizeCompatBaseURL(compatURL);
+      if (compatApi === "responses") {
+        const { createOpenAI } = await import("@ai-sdk/openai");
+        // createOpenAI defaults to the Responses API: base …/v1 → POST …/v1/responses.
+        built = createOpenAI({
+          baseURL: prefix,
+          apiKey: epKey || key || undefined,
+          headers,
+          fetch: localProxyFetch,
+        })(resolvedModelId);
+      } else if (compatApi === "messages") {
+        const { createAnthropic } = await import("@ai-sdk/anthropic");
+        // Go-style gateways expect Bearer auth; native Anthropic expects
+        // x-api-key. Send both so either side accepts the key.
+        const authHeaders = { ...headers };
+        const bearer = epKey || key || "";
+        if (bearer && !authHeaders["x-api-key"]) {
+          authHeaders["x-api-key"] = bearer;
+        }
+        built = createAnthropic({
+          baseURL: prefix,
+          authToken: bearer || undefined,
+          headers: authHeaders,
+          fetch: localProxyFetch,
+        })(resolvedModelId);
+      } else {
+        const { createOpenAICompatible } =
+          await import("@ai-sdk/openai-compatible");
+        built = createOpenAICompatible({
+          name: "openai-compatible",
+          baseURL: prefix,
+          apiKey: epKey || key || undefined,
+          headers,
+          fetch: localProxyFetch,
+        })(resolvedModelId);
+      }
       break;
     }
     case "lmstudio": {
@@ -228,9 +286,12 @@ export type LocalProviderConfig = {
   ollamaModelIds?: string[];
   openaiCompatibleBaseURL?: string;
   openaiCompatibleModelId?: string;
+  openaiCompatibleHeaders?: Record<string, string>;
+  openaiCompatibleApi?: CustomEndpointApi | "auto";
   openrouterModelIds?: string[];
   customEndpoints?: readonly CustomEndpoint[];
   customEndpointKeys?: CustomEndpointKeys;
+  sessionId?: string;
 };
 
 export function buildConfiguredLanguageModel(
@@ -254,7 +315,12 @@ export function buildConfiguredLanguageModel(
       "openai-compatible",
       keys,
       resolvedModelId,
-      { openaiCompatibleBaseURL: ep.baseURL },
+      {
+        openaiCompatibleBaseURL: ep.baseURL,
+        openaiCompatibleHeaders: ep.headers,
+        openaiCompatibleApi: ep.api,
+        sessionId: local.sessionId,
+      },
       local.customEndpointKeys?.[parsed.endpointId],
     );
   }
@@ -335,6 +401,9 @@ export function buildConfiguredLanguageModel(
     mlxBaseURL: local.mlxBaseURL,
     ollamaBaseURL: local.ollamaBaseURL,
     openaiCompatibleBaseURL: local.openaiCompatibleBaseURL,
+    openaiCompatibleHeaders: local.openaiCompatibleHeaders,
+    openaiCompatibleApi: local.openaiCompatibleApi,
+    sessionId: local.sessionId,
   });
 }
 
@@ -419,9 +488,13 @@ export type RunAgentOptions = {
   openaiCompatibleBaseURL?: string;
   openaiCompatibleModelId?: string;
   openaiCompatibleContextLimit?: number;
+  openaiCompatibleHeaders?: Record<string, string>;
+  openaiCompatibleApi?: CustomEndpointApi | "auto";
   openrouterModelIds?: string[];
   customEndpoints?: readonly CustomEndpoint[];
   customEndpointKeys?: CustomEndpointKeys;
+  /** Chat conversation id — forwarded as `x-opencode-session`. */
+  sessionId?: string;
   planMode?: boolean;
   reasoningEffort?: ReasoningEffort;
   projectMemory?: string | null;
@@ -480,13 +553,22 @@ export async function runAgentStream(opts: RunAgentOptions) {
     ollamaModelIds: opts.ollamaModelIds,
     openaiCompatibleBaseURL: opts.openaiCompatibleBaseURL,
     openaiCompatibleModelId: opts.openaiCompatibleModelId,
+    openaiCompatibleHeaders: opts.openaiCompatibleHeaders,
+    openaiCompatibleApi: opts.openaiCompatibleApi,
     openrouterModelIds: opts.openrouterModelIds,
     customEndpoints: opts.customEndpoints,
     customEndpointKeys: opts.customEndpointKeys,
+    sessionId: opts.sessionId,
   });
   const endpoints = opts.customEndpoints ?? [];
   const info = resolveModel(modelId, endpoints);
-  const provider = info.provider;
+  const compatEndpoint = isCompatModelId(modelId)
+    ? endpoints.find((e) => e.id === parseCompatModelId(modelId)?.endpointId)
+    : undefined;
+  const compatApi = compatEndpoint
+    ? resolveCompatApi(compatEndpoint.baseURL, compatEndpoint.api)
+    : undefined;
+  const provider = resolveEffectiveProvider(modelId, endpoints, info.provider);
 
   const stableSystem = buildStableSystem(
     modelId,
@@ -502,11 +584,8 @@ export async function runAgentStream(opts: RunAgentOptions) {
     reasoning: keepsReasoning ? "none" : "before-last-message",
     emptyMessages: "remove",
   });
-  const compatCtxOverride = isCompatModelId(modelId)
-    ? endpoints.find(
-        (e) => e.id === parseCompatModelId(modelId)?.endpointId,
-      )?.contextLimit
-    : opts.openaiCompatibleContextLimit;
+  const compatCtxOverride = compatEndpoint?.contextLimit
+    ?? (isCompatModelId(modelId) ? undefined : opts.openaiCompatibleContextLimit);
   const compact = compactModelMessagesDetailed(
     prunedHistory,
     getModelContextLimit(modelId, compatCtxOverride),
@@ -528,6 +607,15 @@ export async function runAgentStream(opts: RunAgentOptions) {
     opts.reasoningEffort ?? "auto",
     provider,
   );
+  // Responses gateways that translate to another upstream (OpenCode Go →
+  // Meta and friends) have been observed rejecting continued tool steps with
+  // "No function call found for function call output": they reconcile the
+  // follow-up against stored server state instead of the request input.
+  // Force self-contained requests. Side benefit: prompts aren't retained
+  // server-side for the multi-step loop.
+  const responsesOpts =
+    compatApi === "responses" ? { openai: { store: false } } : undefined;
+  const providerOptions = mergeProviderOptions(responsesOpts, reasoningOpts);
 
   let stepsSeen = 0;
   return streamText({
@@ -536,8 +624,8 @@ export async function runAgentStream(opts: RunAgentOptions) {
     tools: buildTools(opts.toolContext),
     stopWhen: stepCountIs(MAX_AGENT_STEPS),
     abortSignal: opts.abortSignal,
-    ...(reasoningOpts
-      ? { providerOptions: reasoningOpts as Parameters<typeof streamText>[0]["providerOptions"] }
+    ...(providerOptions
+      ? { providerOptions: providerOptions as Parameters<typeof streamText>[0]["providerOptions"] }
       : {}),
     onStepFinish: (step) => {
       stepsSeen++;
