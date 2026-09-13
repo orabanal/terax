@@ -99,9 +99,17 @@ export function useGitSummary(
   const [sshCwd, setSshCwd] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const liveRef = useRef(true);
+  // Generation of the current identity (cwd/leafId/isSSH). Guards against a
+  // slow fetch from a previous identity overwriting the fresh one.
+  const genRef = useRef(0);
+  // Whether the current identity has settled at least once. Background
+  // refreshes are silent: `loading` is only true for the initial fetch, and
+  // failures keep the last-known summary (stale-while-revalidate) instead of
+  // blanking the chip.
+  const settledRef = useRef(false);
 
-  const fetch = useCallback(async () => {
-    setLoading(true);
+  const fetch = useCallback(async (gen: number) => {
+    if (!settledRef.current) setLoading(true);
     try {
       let result: GitQuickSummary | null = null;
       let detectedCwd: string | null = null;
@@ -118,24 +126,34 @@ export function useGitSummary(
       } else if (!isSSH && cwd) {
         result = await fetchLocalSummary(cwd);
       }
-      if (liveRef.current) {
-        setSummary(result);
-        setSshCwd(detectedCwd);
-        setLoading(false);
-      }
+      if (!liveRef.current || genRef.current !== gen) return;
+      setSummary(result);
+      setSshCwd(detectedCwd);
+      settledRef.current = true;
+      setLoading(false);
     } catch {
-      if (liveRef.current) {
+      if (!liveRef.current || genRef.current !== gen) return;
+      if (!settledRef.current) {
         setSummary(null);
         setSshCwd(null);
-        setLoading(false);
       }
+      settledRef.current = true;
+      setLoading(false);
     }
   }, [cwd, leafId, isSSH]);
 
   useEffect(() => {
     liveRef.current = true;
-    void fetch();
-    const id = setInterval(() => void fetch(), POLL_MS);
+    genRef.current += 1;
+    const gen = genRef.current;
+    // New identity (tab switch, cd, SSH toggle): drop the previous repo's
+    // data so the chip never shows a stale branch, then load silently in
+    // the background once settled.
+    settledRef.current = false;
+    setSummary(null);
+    setSshCwd(null);
+    void fetch(gen);
+    const id = setInterval(() => void fetch(gen), POLL_MS);
 
     if (isSSH && leafId !== null) {
       let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -145,7 +163,7 @@ export function useGitSummary(
         if (debounceTimer !== null) clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
           debounceTimer = null;
-          void fetch();
+          void fetch(gen);
         }, SSH_ACTIVITY_DEBOUNCE_MS);
       };
       window.addEventListener("terax:ssh-activity", onSshActivity);

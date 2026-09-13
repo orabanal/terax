@@ -3,7 +3,7 @@ export type PaneId = number;
 export type SplitDir = "row" | "col";
 
 export type PaneNode =
-  | { kind: "leaf"; id: PaneId; cwd?: string }
+  | { kind: "leaf"; id: PaneId; cwd?: string; originTitle?: string }
   | {
       kind: "split";
       id: PaneId;
@@ -99,6 +99,54 @@ export function splitLeaf(
 }
 
 /**
+ * Graft an existing subtree next to `targetId` in direction `dir`.
+ *
+ * Same placement rules as `splitLeaf`, but inserts `node` (a whole moved
+ * subtree, leaf ids preserved) instead of a fresh leaf. `before` puts the
+ * grafted subtree first (for left/top drops).
+ */
+export function graftNode(
+  tree: PaneNode,
+  targetId: PaneId,
+  dir: SplitDir,
+  node: PaneNode,
+  before: boolean,
+  newSplitId: PaneId,
+): PaneNode {
+  if (tree.kind === "split" && tree.dir === dir) {
+    const idx = tree.children.findIndex(
+      (c) => c.kind === "leaf" && c.id === targetId,
+    );
+    if (idx >= 0) {
+      const at = before ? idx : idx + 1;
+      return {
+        ...tree,
+        children: [
+          ...tree.children.slice(0, at),
+          node,
+          ...tree.children.slice(at),
+        ],
+      };
+    }
+  }
+  if (isLeaf(tree)) {
+    if (tree.id !== targetId) return tree;
+    return {
+      kind: "split",
+      id: newSplitId,
+      dir,
+      children: before ? [node, tree] : [tree, node],
+    };
+  }
+  return {
+    ...tree,
+    children: tree.children.map((c) =>
+      graftNode(c, targetId, dir, node, before, newSplitId),
+    ),
+  };
+}
+
+/**
  * Remove a leaf and collapse single-child splits left in its wake. Returns
  * `null` when the entire subtree is gone.
  */
@@ -180,4 +228,39 @@ export function siblingLeafOf(
 
 export function hasLeaf(tree: PaneNode, id: PaneId): boolean {
   return leafIds(tree).includes(id);
+}
+
+/**
+ * Stamp every leaf missing one with the display name of the tab it is being
+ * grafted out of. Detaching ("Return to tab") restores this name instead of
+ * the workspace container's title. Existing stamps survive re-grafts so a
+ * pane always remembers its original tab.
+ */
+export function stampOriginTitle(tree: PaneNode, title: string): PaneNode {
+  if (isLeaf(tree)) {
+    if (tree.originTitle) return tree;
+    return { ...tree, originTitle: title };
+  }
+  return {
+    ...tree,
+    children: tree.children.map((c) => stampOriginTitle(c, title)),
+  };
+}
+
+/** The shared origin stamp when EVERY leaf carries the same one, else null.
+ *  Unstamped remainders keep their tab identity (plain detach path). */
+export function soleOriginTitle(tree: PaneNode): string | null {
+  const found: { origin: string | undefined }[] = [];
+  const walk = (n: PaneNode): void => {
+    if (isLeaf(n)) {
+      found.push({ origin: n.originTitle });
+      return;
+    }
+    for (const c of n.children) walk(c);
+  };
+  walk(tree);
+  if (found.length === 0) return null;
+  const first = found[0].origin;
+  if (first === undefined) return null;
+  return found.every((f) => f.origin === first) ? first : null;
 }

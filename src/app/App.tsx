@@ -76,7 +76,8 @@ import {
   writeToSession,
 } from "@/modules/terminal";
 import { parseGitDiff, type ParsedGitDiff } from "@/modules/terminal/lib/gitDiffParser";
-import { ptyIdForLeaf } from "@/modules/terminal/lib/useTerminalSession";
+import type { SplitDir } from "@/modules/terminal/lib/panes";
+import { getLeafSessionConfig, ptyIdForLeaf } from "@/modules/terminal/lib/useTerminalSession";
 import { ThemeProvider, useThemeFileEditing } from "@/modules/theme";
 import { UpdaterDialog } from "@/modules/updater";
 import { useWorkspaceEnvStore, currentWorkspaceEnv } from "@/modules/workspace";
@@ -130,6 +131,7 @@ export default function App() {
     extractLeafToTab,
     cloneTab,
     moveTab,
+    moveTabToSplit,
     resetWorkspace,
   } = useTabs(getLaunchDir() ? { cwd: getLaunchDir() } : undefined);
 
@@ -511,7 +513,11 @@ export default function App() {
     setActiveSshCwd(null);
   }, [activeLeafId]);
 
-  const isActiveSSH = activeTerminalTab?.sshHost != null;
+  // Per-leaf, not per-tab: a split can graft an SSH pane into a local tab
+  // (or vice versa), so the status bar git chip must follow the focused pane.
+  const isActiveSSH =
+    activeLeafId !== null &&
+    getLeafSessionConfig(activeLeafId)?.sshHost != null;
   const activeSshId =
     isActiveSSH && activeLeafId !== null ? ptyIdForLeaf(activeLeafId) : null;
   const activeTerminalSshGitCtx =
@@ -883,6 +889,32 @@ export default function App() {
     [cloneTab],
   );
 
+  // Container of the active tab content: drop target for tab-to-split drags.
+  const workspaceContentRef = useRef<HTMLDivElement>(null);
+
+  const handleSplitDrop = useCallback(
+    (sourceId: number, targetId: number, dir: SplitDir, before: boolean) => {
+      moveTabToSplit(sourceId, targetId, dir, before);
+    },
+    [moveTabToSplit],
+  );
+
+  // While a tab drag is active, freeze the visible content on the drop
+  // target: the dragged tab's own content must never flash, whatever the
+  // selection does mid-gesture. Cleared on drop/cancel.
+  const [dragPreviewTargetId, setDragPreviewTargetId] = useState<number | null>(
+    null,
+  );
+  const handleTabDragPreview = useCallback(
+    (dragging: boolean, targetId: number | null) => {
+      setDragPreviewTargetId(dragging ? targetId : null);
+    },
+    [],
+  );
+  const visibleActiveId = dragPreviewTargetId ?? activeId;
+  const visibleActiveTab =
+    tabs.find((t) => t.id === visibleActiveId) ?? activeTab;
+
   const searchTarget = useMemo<SearchTarget>(() => {
     if (isTerminalTab && activeLeafId !== null && activeSearchAddon)
       return {
@@ -997,6 +1029,9 @@ export default function App() {
               onRename={handleRenameTab}
               onClone={handleCloneTab}
               onMoveTab={moveTab}
+              contentRef={workspaceContentRef}
+              onSplitDrop={handleSplitDrop}
+              onTabDragPreview={handleTabDragPreview}
               sftpVisible={sftpTabVisible}
               onToggleSftp={toggleSftpTab}
               onToggleSidebar={toggleSidebar}
@@ -1066,11 +1101,11 @@ export default function App() {
               <ResizablePanel id="workspace" defaultSize="78%" minSize="30%">
                 <div className="flex h-full min-h-0">
                   <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                  <div className="relative min-h-0 flex-1 overflow-hidden">
+                  <div ref={workspaceContentRef} className="relative min-h-0 flex-1 overflow-hidden">
                     <WorkspaceSurface
                       tabs={tabs}
-                      activeId={activeId}
-                      activeTab={activeTab}
+                      activeId={visibleActiveId}
+                      activeTab={visibleActiveTab}
                       registerTerminalHandle={registerTerminalHandle}
                       onSearchReady={handleSearchReady}
                       onCwd={handleTerminalCwd}
@@ -1136,7 +1171,7 @@ export default function App() {
                 activeTab?.kind === "terminal" && activeTab.private === true
               }
               leafId={activeLeafId}
-              isSSH={activeTerminalTab?.sshHost != null}
+              isSSH={isActiveSSH}
               onGitClick={isTerminalTab ? handleGitClick : undefined}
               isComposeBarOpen={composeBarOpen}
               onToggleComposeBar={toggleComposeBar}

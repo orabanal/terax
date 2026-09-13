@@ -2,17 +2,25 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   extractLeaf,
   findLeafCwd,
+  graftNode,
   hasLeaf,
   leafIds,
   nextLeafId,
   removeLeaf,
   setLeafCwd as setLeafCwdInTree,
   siblingLeafOf,
+  soleOriginTitle,
   splitLeaf,
+  stampOriginTitle,
   type PaneNode,
   type SplitDir,
 } from "@/modules/terminal/lib/panes";
-import { disposeSession } from "@/modules/terminal/lib/useTerminalSession";
+import {
+  disposeSession,
+  getLeafSessionConfig,
+} from "@/modules/terminal/lib/useTerminalSession";
+import { labelFor } from "./tabLabel";
+import { isWorkspaceTree } from "./splitDrop";
 import type { SshHost } from "@/modules/ssh/store";
 
 // Matches the renderer slot pool size — over this we'd evict an active leaf.
@@ -900,16 +908,27 @@ export function useTabs(initial?: Partial<TerminalTab>) {
         const { tree, extracted } = result;
         const cwd =
           extracted.kind === "leaf" ? extracted.cwd : undefined;
+        // Prefer the pane's origin name (stamped at graft time) over the
+        // container tab's title, and the pane's live session config over the
+        // container's: a pane grouped into a foreign tab detaches with its
+        // own name, icon and connection.
+        const originTitle =
+          extracted.kind === "leaf" ? extracted.originTitle : undefined;
+        const sessCfg = getLeafSessionConfig(leafId);
         const newTab: TerminalTab = {
           id: newTabId,
           kind: "terminal",
-          title: "shell",
+          // Keep the source identity (name, icon via sshHostId, privacy) so
+          // "Return to tab" restores the tab as it was, not a bare "shell".
+          title: tab.title,
           cwd,
           paneTree: extracted,
           activeLeafId: leafId,
-          sshHost: tab.sshHost,
-          sshHostId: tab.sshHostId,
-          command: tab.command,
+          sshHost: sessCfg ? sessCfg.sshHost : tab.sshHost,
+          sshHostId: sessCfg ? sessCfg.sshHost?.id : tab.sshHostId,
+          command: sessCfg ? sessCfg.command : tab.command,
+          private: tab.private,
+          customTitle: originTitle ?? tab.customTitle,
         };
         const updated = curr
           .map((t) => {
@@ -920,7 +939,29 @@ export function useTabs(initial?: Partial<TerminalTab>) {
             const newActive = remaining.includes(t.activeLeafId)
               ? t.activeLeafId
               : remaining[0];
-            return { ...t, paneTree: tree, activeLeafId: newActive };
+            const next: TerminalTab = {
+              ...t,
+              paneTree: tree,
+              activeLeafId: newActive,
+            };
+            // Adopt the remainder when it uniformly came from one tab: a lone
+            // foreign pane left behind takes its origin identity (name, icon,
+            // connection) instead of the stale container fields.
+            const soleOrigin = soleOriginTitle(tree);
+            if (soleOrigin !== null) {
+              next.customTitle = soleOrigin;
+              const adoptCfg = getLeafSessionConfig(remaining[0]);
+              if (adoptCfg) {
+                next.sshHost = adoptCfg.sshHost;
+                next.sshHostId = adoptCfg.sshHost?.id;
+                next.command = adoptCfg.command;
+              }
+              if (remaining.length === 1) {
+                const adoptCwd = findLeafCwd(tree, remaining[0]);
+                if (adoptCwd !== undefined) next.cwd = adoptCwd;
+              }
+            }
+            return next;
           })
           .filter((t): t is Tab => t !== null);
         return [...updated, newTab];
@@ -975,10 +1016,81 @@ export function useTabs(initial?: Partial<TerminalTab>) {
           customTitle: tab.customTitle,
         };
 
-        return [...curr, newTab];
+        // Insert right after the source tab so the clone lands next to it,
+        // not at the end of the bar.
+        const at = curr.findIndex((t) => t.id === tabId);
+        const next = [...curr];
+        next.splice(at === -1 ? next.length : at + 1, 0, newTab);
+        return next;
       });
       if (newTabId !== null) setActiveId(newTabId);
       return newTabId;
+    },
+    [],
+  );
+
+  /**
+   * Move a whole tab's panes into another tab's split tree (tab-bar drop
+   * onto the content area). Leaf ids are preserved, so live PTY/SSH sessions
+   * (keyed by leaf id, reused by `ensureSession`) travel untouched — mixed
+   * connections in one view work without reconnecting. The source tab closes.
+   * Focus lands on the first moved pane; a private source escalates the
+   * target tab to private.
+   */
+  const moveTabToSplit = useCallback(
+    (sourceId: number, targetId: number, dir: SplitDir, before: boolean) => {
+      if (sourceId === targetId) return;
+      setTabs((curr) => {
+        const source = curr.find((t) => t.id === sourceId);
+        const target = curr.find((t) => t.id === targetId);
+        if (source?.kind !== "terminal" || target?.kind !== "terminal") {
+          return curr;
+        }
+        if (source.blocks || target.blocks) return curr;
+        const moving = leafIds(source.paneTree);
+        if (moving.length === 0) return curr;
+        if (!hasLeaf(target.paneTree, target.activeLeafId)) return curr;
+        if (
+          leafIds(target.paneTree).length + moving.length >
+          MAX_PANES_PER_TAB
+        ) {
+          return curr;
+        }
+        // Remember where each moved pane came from: detaching restores the
+        // pane's original tab name, not the workspace container's title.
+        // A bare "Workspace" state is never stamped as a name.
+        const sourceName =
+          source.customTitle ??
+          (isWorkspaceTree(source.paneTree)
+            ? undefined
+            : labelFor(source));
+        const stamped = sourceName
+          ? stampOriginTitle(source.paneTree, sourceName)
+          : source.paneTree;
+        const splitId = nextIdRef.current++;
+        const newTree = graftNode(
+          target.paneTree,
+          target.activeLeafId,
+          dir,
+          stamped,
+          before,
+          splitId,
+        );
+        return curr
+          .filter((t) => t.id !== sourceId)
+          .map((t) => {
+            if (t.id !== targetId || t.kind !== "terminal") return t;
+            return {
+              ...t,
+              paneTree: newTree,
+              activeLeafId: moving[0],
+              private: t.private || source.private,
+            };
+          });
+      });
+      // The drop target owns the visible content, so it is normally active.
+      // If the selection ever pointed at the closed source, fall back to it.
+      setActiveId((active) => (active === sourceId ? targetId : active));
     },
     [],
   );
@@ -1053,6 +1165,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     cloneTab,
     extractLeafToTab,
     moveTab,
+    moveTabToSplit,
     resetWorkspace,
   };
 }

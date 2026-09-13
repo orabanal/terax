@@ -29,6 +29,7 @@ import {
   type CustomEndpointApi,
   type ProviderId,
 } from "../config";
+import { version as TERAX_VERSION } from "../../../../package.json";
 import type { ReasoningEffort } from "../store/chatStore";
 import { buildTools, type ToolContext } from "../tools/tools";
 import { compactModelMessagesDetailed } from "./compact";
@@ -84,9 +85,13 @@ export type BuildModelOptions = {
   sessionId?: string;
 };
 
-const TERAX_USER_AGENT = "Terax/9.7.3";
+const TERAX_USER_AGENT = `Terax/${TERAX_VERSION}`;
 
 const modelCache = new Map<string, LanguageModel>();
+// The cache key includes the chat session id, so entries accumulate as
+// sessions come and go. Cap it LRU-style like the chat registry in
+// chatStore (CHATS_LRU_CAP).
+const MODEL_CACHE_CAP = 20;
 
 export async function buildLanguageModel(
   provider: ProviderId,
@@ -111,7 +116,11 @@ export async function buildLanguageModel(
   const epKey = customEndpointKey ?? "";
   const cacheKey = `${provider} ${key} ${epKey} ${resolvedModelId} ${lmstudioURL} ${mlxURL} ${ollamaURL} ${compatURL} ${compatApi} ${sessionId} ${JSON.stringify(compatHeaders)}`;
   const hit = modelCache.get(cacheKey);
-  if (hit) return hit;
+  if (hit) {
+    modelCache.delete(cacheKey);
+    modelCache.set(cacheKey, hit);
+    return hit;
+  }
 
   let built: LanguageModel;
   switch (provider) {
@@ -274,6 +283,11 @@ export async function buildLanguageModel(
     }
   }
   modelCache.set(cacheKey, built);
+  while (modelCache.size > MODEL_CACHE_CAP) {
+    const oldest = modelCache.keys().next().value;
+    if (oldest === undefined) break;
+    modelCache.delete(oldest);
+  }
   return built;
 }
 

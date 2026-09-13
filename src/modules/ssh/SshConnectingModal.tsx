@@ -7,7 +7,7 @@ import {
   isSessionConnected,
   isSshDisconnected,
   respawnSession,
-  sshStatusListeners,
+  subscribeSshStatus,
 } from "@/modules/terminal/lib/useTerminalSession";
 
 type Props = {
@@ -43,7 +43,7 @@ export function SshConnectingModal({ leafId, hostName, onClose }: Props) {
     setStatus("Connecting...");
     setPhase("connecting");
 
-    sshStatusListeners.set(leafId, (msg: string) => {
+    const unsubscribe = subscribeSshStatus(leafId, (msg: string) => {
       if (msg === "Disconnected") {
         setPhase("disconnected");
         return;
@@ -59,7 +59,7 @@ export function SshConnectingModal({ leafId, hostName, onClose }: Props) {
     });
 
     return () => {
-      sshStatusListeners.delete(leafId);
+      unsubscribe();
     };
   }, [leafId]);
 

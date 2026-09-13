@@ -16,6 +16,7 @@ import {
 import type { SshHost } from "@/modules/ssh/store";
 import type { Tab } from "@/modules/tabs";
 import { TabBar } from "@/modules/tabs";
+import type { SplitDir } from "@/modules/terminal/lib/panes";
 import { NotificationBell } from "@/modules/agents";
 import {
   GridViewIcon,
@@ -52,6 +53,17 @@ type Props = {
   onClone: (id: number) => void;
   /** Reorder tabs by moving tabId to position toIndex in the full tabs array. */
   onMoveTab: (tabId: number, toIndex: number) => void;
+  /** Container of the active tab content, used to detect tab-to-split drops. */
+  contentRef: RefObject<HTMLElement | null>;
+  /** Graft a whole tab's panes into another tab's split tree. */
+  onSplitDrop: (
+    sourceId: number,
+    targetId: number,
+    dir: SplitDir,
+    before: boolean,
+  ) => void;
+  /** Tab-drag preview lifecycle (freezes visible content on the target). */
+  onTabDragPreview: (dragging: boolean, targetId: number | null) => void;
   /** Whether the pinned SFTP tab is currently shown. */
   sftpVisible: boolean;
   /** Toggle the pinned SFTP tab on/off. */
@@ -85,6 +97,9 @@ export function Header({
   onRename,
   onClone,
   onMoveTab,
+  contentRef,
+  onSplitDrop,
+  onTabDragPreview,
   sftpVisible,
   onToggleSftp,
   onToggleSidebar,
@@ -228,6 +243,9 @@ export function Header({
           onRename={onRename}
           onClone={onClone}
           onMoveTab={onMoveTab}
+          contentRef={contentRef}
+          onSplitDrop={onSplitDrop}
+          onTabDragPreview={onTabDragPreview}
           sftpVisible={sftpVisible}
           onToggleSftp={onToggleSftp}
           compact={compact}

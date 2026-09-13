@@ -84,7 +84,34 @@ type Session = {
 };
 
 const sessions = new Map<number, Session>();
-export const sshStatusListeners = new Map<number, (msg: string) => void>();
+
+// SSH status subscribers keyed by leafId. Multi-subscriber: the reconnect
+// modal and per-pane indicators listen to the same leaf without clobbering.
+const sshStatusListeners = new Map<number, Set<(msg: string) => void>>();
+
+export function subscribeSshStatus(
+  leafId: number,
+  cb: (msg: string) => void,
+): () => void {
+  let set = sshStatusListeners.get(leafId);
+  if (!set) {
+    set = new Set();
+    sshStatusListeners.set(leafId, set);
+  }
+  set.add(cb);
+  return () => {
+    const s = sshStatusListeners.get(leafId);
+    if (!s) return;
+    s.delete(cb);
+    if (s.size === 0) sshStatusListeners.delete(leafId);
+  };
+}
+
+function emitSshStatus(leafId: number, msg: string): void {
+  sshStatusListeners.get(leafId)?.forEach((cb) => {
+    cb(msg);
+  });
+}
 
 // PTY data subscribers keyed by leafId. Used by SSH agent detection.
 const ptyDataSubscribers = new Map<number, Set<(bytes: Uint8Array) => void>>();
@@ -109,6 +136,29 @@ export function subscribePtyData(
 
 export function getCwdForLeaf(leafId: number): string | null {
   return sessions.get(leafId)?.lastCwd ?? null;
+}
+
+/** Connection identity of a leaf's session: SSH host id, baked-in command,
+ *  or local. Unknown (not yet mounted) leaves read as local. Used to detect
+ *  mixed-connection tabs ("Workspace"). */
+export function getLeafConnectionKey(leafId: number): string {
+  const s = sessions.get(leafId);
+  if (!s) return "local";
+  if (s.sshHost) return `ssh:${s.sshHost.id}`;
+  if (s.command && s.command.length > 0) return `cmd:${s.command.join(" ")}`;
+  return "local";
+}
+
+/** Live connection config of a leaf's session (null when not mounted).
+ *  Source of truth when a pane moves between tabs: the destination tab's
+ *  own sshHost/command may belong to a different connection. */
+export function getLeafSessionConfig(leafId: number): {
+  sshHost: (SshHost & { password?: string }) | undefined;
+  command: string[] | undefined;
+} | null {
+  const s = sessions.get(leafId);
+  if (!s) return null;
+  return { sshHost: s.sshHost ?? undefined, command: s.command };
 }
 
 /** Returns true if the session for `leafId` already has an active PTY. */
@@ -326,7 +376,7 @@ async function openPtyForSession(
           // reconnect modal regardless of whether it is currently mounted;
           // do not treat this as a shell exit.
           s.sshDisconnected = true;
-          sshStatusListeners.get(leafId)?.("Disconnected");
+          emitSshStatus(leafId, "Disconnected");
           // Emit event for reactive UI updates (replaces polling)
           window.dispatchEvent(
             new CustomEvent("terax:ssh-activity", { detail: { leafId } })
@@ -337,7 +387,7 @@ async function openPtyForSession(
         else s.pendingExit = code;
       },
       onStatus: (msg) => {
-        sshStatusListeners.get(leafId)?.(msg);
+        emitSshStatus(leafId, msg);
         // Emit event on status changes for reactive updates
         window.dispatchEvent(
           new CustomEvent("terax:ssh-activity", { detail: { leafId } })

@@ -30,6 +30,7 @@ import {
   GitCompareIcon,
   Globe02Icon,
   IncognitoIcon,
+  LayoutTwoColumnIcon,
   PencilEdit02Icon,
   PlusSignIcon,
   ServerStack01Icon,
@@ -38,7 +39,15 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { labelFor } from "./lib/tabLabel";
-import type { EditorTab, Tab } from "./lib/useTabs";
+import { MAX_PANES_PER_TAB, type EditorTab, type Tab } from "./lib/useTabs";
+import { leafIds, type SplitDir } from "@/modules/terminal/lib/panes";
+import {
+  canGraftSplit,
+  isWorkspaceTree,
+  zoneForPoint,
+  type SplitDropZone,
+} from "./lib/splitDrop";
+import { SplitDropOverlay } from "./SplitDropOverlay";
 
 type DragState = {
   tabId: number;
@@ -46,6 +55,8 @@ type DragState = {
   startX: number;
   /** True once the mouse has moved past the drag threshold. */
   active: boolean;
+  /** Content owner at drag start: the tab a content drop grafts into. */
+  targetId: number;
 };
 
 type Props = {
@@ -68,6 +79,19 @@ type Props = {
   onClone: (id: number) => void;
   /** Reorder tabs by moving tabId to position toIndex in the full tabs array. */
   onMoveTab: (tabId: number, toIndex: number) => void;
+  /** Container of the active tab content, used to detect tab-to-split drops. */
+  contentRef: React.RefObject<HTMLElement | null>;
+  /** Graft a whole tab's panes into another tab's split tree. */
+  onSplitDrop: (
+    sourceId: number,
+    targetId: number,
+    dir: SplitDir,
+    before: boolean,
+  ) => void;
+  /** Tab-drag preview lifecycle: App freezes the visible content on the
+   *  drop target while a drag is active so the dragged tab's own content
+   *  never flashes, whatever the selection does mid-gesture. */
+  onTabDragPreview: (dragging: boolean, targetId: number | null) => void;
   /** Whether the pinned SFTP tab is currently shown. */
   sftpVisible: boolean;
   /** Toggle the pinned SFTP tab on/off. */
@@ -91,6 +115,9 @@ export function TabBar({
   onRename,
   onClone,
   onMoveTab,
+  contentRef,
+  onSplitDrop,
+  onTabDragPreview,
   sftpVisible,
   onToggleSftp,
   compact,
@@ -117,12 +144,23 @@ export function TabBar({
   const [dropTarget, setDropTarget] = useState<number | null>(null);
   const [draggedTabId, setDraggedTabId] = useState<number | null>(null);
   const [ghostPos, setGhostPos] = useState<{ x: number; y: number } | null>(null);
+  // Tab-to-split drag: set while the pointer is over the content area.
+  const [splitDrag, setSplitDrag] = useState<{
+    zone: SplitDropZone;
+    valid: boolean;
+  } | null>(null);
   const tabsRef = useRef(scrollableTabs);
   tabsRef.current = scrollableTabs;
   const onMoveTabRef = useRef(onMoveTab);
   onMoveTabRef.current = onMoveTab;
-  const sftpTabRef = useRef(sftpTab);
-  sftpTabRef.current = sftpTab;
+  const fullTabsRef = useRef(tabs);
+  fullTabsRef.current = tabs;
+  const activeIdRef = useRef(activeId);
+  activeIdRef.current = activeId;
+  const onSplitDropRef = useRef(onSplitDrop);
+  onSplitDropRef.current = onSplitDrop;
+  const onTabDragPreviewRef = useRef(onTabDragPreview);
+  onTabDragPreviewRef.current = onTabDragPreview;
   const scrollRefForDrag = scrollRef;
 
   const resolveDropIndex = useCallback(
@@ -147,6 +185,51 @@ export function TabBar({
   useEffect(() => {
     const DRAG_THRESHOLD = 4;
 
+    // Tab-to-split evaluation: when the pointer is over the content area,
+    // resolve the quadrant zone and whether grafting the dragged tab there
+    // is valid. Returns null outside the content area. The drop target is
+    // the content owner captured at drag start, never the live selection
+    // (which must not move mid-drag).
+    const evalSplit = (
+      tabId: number,
+      targetId: number,
+      x: number,
+      y: number,
+    ): { zone: SplitDropZone; valid: boolean; targetId: number } | null => {
+      const el = contentRef.current;
+      if (!el) return null;
+      const rect = el.getBoundingClientRect();
+      const zone = zoneForPoint(rect, x, y);
+      if (!zone) return null;
+      const full = fullTabsRef.current;
+      const source = full.find((t) => t.id === tabId) ?? null;
+      const target = full.find((t) => t.id === targetId) ?? null;
+      const valid =
+        !!source &&
+        !!target &&
+        source.kind === "terminal" &&
+        target.kind === "terminal" &&
+        canGraftSplit(
+          source,
+          leafIds(source.paneTree).length,
+          target,
+          leafIds(target.paneTree).length,
+          MAX_PANES_PER_TAB,
+        );
+      return { zone, valid, targetId };
+    };
+
+    const endDragVisuals = () => {
+      dragRef.current = null;
+      setDraggedTabId(null);
+      setDropTarget(null);
+      setSplitDrag(null);
+      setGhostPos(null);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      onTabDragPreviewRef.current(false, null);
+    };
+
     const onMouseMove = (e: MouseEvent) => {
       const drag = dragRef.current;
       if (!drag) return;
@@ -155,9 +238,20 @@ export function TabBar({
         if (Math.abs(e.clientX - drag.startX) < DRAG_THRESHOLD) return;
         drag.active = true;
         setDraggedTabId(drag.tabId);
+        onTabDragPreviewRef.current(true, drag.targetId);
       }
 
       e.preventDefault();
+
+      // Over the content area: split mode (reorder indicator hidden).
+      const split = evalSplit(drag.tabId, drag.targetId, e.clientX, e.clientY);
+      if (split) {
+        setSplitDrag({ zone: split.zone, valid: split.valid });
+        setDropTarget(null);
+        setGhostPos({ x: e.clientX, y: e.clientY });
+        return;
+      }
+      setSplitDrag(null);
 
       const idx = resolveDropIndex(e.clientX);
       setDropTarget(idx);
@@ -183,32 +277,54 @@ export function TabBar({
       const wasActive = drag.active;
       const startIndex = drag.startIndex;
 
-      dragRef.current = null;
-      setDraggedTabId(null);
-      setDropTarget(null);
-      setGhostPos(null);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
+      endDragVisuals();
 
       if (!wasActive) return;
       e.preventDefault();
       e.stopPropagation();
 
+      // Drops over the content area never reorder: valid ones graft the
+      // dragged tab into the drop target's split tree, invalid ones no-op.
+      const split = evalSplit(drag.tabId, drag.targetId, e.clientX, e.clientY);
+      if (split) {
+        if (split.valid) {
+          onSplitDropRef.current(
+            drag.tabId,
+            split.targetId,
+            split.zone.dir,
+            split.zone.before,
+          );
+        }
+        return;
+      }
+
       const toIndex = resolveDropIndex(e.clientX);
       if (toIndex !== null && toIndex !== startIndex) {
-        // Convert scrollableTabs index to full tabs array index
-        const sftpOffset = sftpTabRef.current ? 1 : 0;
-        const adjustedTo = toIndex > startIndex ? toIndex - 1 : toIndex;
-        const fullToIndex = adjustedTo + sftpOffset;
-        onMoveTabRef.current(drag.tabId, fullToIndex);
+        // Map the scrollable drop position to a full-array index via the
+        // neighbor tab, so a pinned SFTP tab at any position cannot skew
+        // the destination. moveTab interprets the index post-removal.
+        const scrollable = tabsRef.current.filter((t) => t.id !== drag.tabId);
+        const insertAt = Math.max(
+          0,
+          Math.min(toIndex > startIndex ? toIndex - 1 : toIndex, scrollable.length),
+        );
+        const neighbor = scrollable[insertAt] ?? null;
+        const fullWithout = fullTabsRef.current.filter((t) => t.id !== drag.tabId);
+        const fullToIndex = neighbor
+          ? fullWithout.findIndex((t) => t.id === neighbor.id)
+          : fullWithout.length;
+        if (fullToIndex !== -1) onMoveTabRef.current(drag.tabId, fullToIndex);
       }
     };
 
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", onMouseUp);
+    // A release outside the window never fires mouseup: unfreeze content.
+    window.addEventListener("blur", endDragVisuals);
     return () => {
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("blur", endDragVisuals);
     };
   }, [resolveDropIndex, scrollRefForDrag]);
 
@@ -217,7 +333,16 @@ export function TabBar({
       if (e.button !== 0 || editingId !== null) return;
       const idx = tabsRef.current.findIndex((t) => t.id === tabId);
       if (idx === -1) return;
-      dragRef.current = { tabId, startIndex: idx, startX: e.clientX, active: false };
+      // Capture the visible content owner now: with manual tab activation
+      // the selection stays put, but the drop target must never depend on
+      // anything that can move mid-drag.
+      dragRef.current = {
+        tabId,
+        startIndex: idx,
+        startX: e.clientX,
+        active: false,
+        targetId: activeIdRef.current,
+      };
       document.body.style.userSelect = "none";
       document.body.style.cursor = "grabbing";
     },
@@ -428,6 +553,10 @@ export function TabBar({
           <Tabs
             value={String(activeId)}
             onValueChange={(v) => onSelect(Number(v))}
+            // Manual activation: pressing (mousedown) a tab must not select
+            // it — otherwise starting a drag would flip the content to the
+            // dragged tab and every content drop would be a self-drop.
+            activationMode="manual"
           >
             <TabsList className="h-7 w-max gap-0.5 bg-transparent p-0">
               {scrollableTabs.map((t, tabIndex) => {
@@ -437,6 +566,8 @@ export function TabBar({
               // The SFTP tab is pinned and managed by the "Show SFTP" toggle,
               // so it never shows the inline close affordance.
               const closable = tabs.length > 1 && t.kind !== "sftp";
+              // Mixed-connection terminal tabs display as "Workspace".
+              const ws = t.kind === "terminal" && isWorkspaceTree(t.paneTree);
 
               const dropIndicator =
                 dropTarget === tabIndex ? (
@@ -456,9 +587,9 @@ export function TabBar({
                       compact ? "px-1.5" : "px-2",
                     )}
                   >
-                    <TabIcon tab={t} />
+                    <TabIcon tab={t} workspace={ws} />
                     <TabRenameInput
-                      initial={labelFor(t)}
+                      initial={labelFor(t, { workspace: ws })}
                       onCommit={(value) => {
                         onRename(t.id, value);
                         setEditingId(null);
@@ -515,11 +646,11 @@ export function TabBar({
                       compact ? "max-w-48" : "max-w-80",
                     )}
                   >
-                    <TabIcon tab={t} />
+                    <TabIcon tab={t} workspace={ws} />
                     {/* Preview tabs use italic to signal the transient state,
                         matching the visual convention from VSCode. */}
                     <span className={cn("truncate", isPreview && "italic")}>
-                      {labelFor(t)}
+                      {labelFor(t, { workspace: ws })}
                     </span>
                     {t.kind === "editor" && t.dirty ? (
                       <span
@@ -700,16 +831,37 @@ export function TabBar({
         className="pointer-events-none fixed z-[9999] flex h-7 items-center gap-1.5 rounded-md bg-accent/90 px-2 text-xs text-foreground shadow-lg ring-1 ring-border/50 backdrop-blur-sm"
         style={{ left: ghostPos.x - 40, top: ghostPos.y - 14 }}
       >
-        <TabIcon tab={draggedTab} />
-        <span className="truncate">{labelFor(draggedTab)}</span>
+        <TabIcon tab={draggedTab} workspace={draggedTab.kind === "terminal" && isWorkspaceTree(draggedTab.paneTree)} />
+        <span className="truncate">{displayLabel(draggedTab)}</span>
       </div>,
       document.body,
+    )}
+    {splitDrag && contentRef.current && createPortal(
+      <SplitDropOverlay zone={splitDrag.zone} valid={splitDrag.valid} />,
+      contentRef.current,
     )}
     </>
   );
 }
 
-function TabIcon({ tab }: { tab: Tab }) {
+/** Display label: mixed-connection terminal tabs render as "Workspace". */
+function displayLabel(t: Tab): string {
+  return labelFor(t, {
+    workspace: t.kind === "terminal" && isWorkspaceTree(t.paneTree),
+  });
+}
+
+function TabIcon({ tab, workspace = false }: { tab: Tab; workspace?: boolean }) {
+  if (tab.kind === "terminal" && workspace) {
+    return (
+      <HugeiconsIcon
+        icon={LayoutTwoColumnIcon}
+        size={14}
+        strokeWidth={2}
+        className="shrink-0"
+      />
+    );
+  }
   if (tab.kind === "terminal" && tab.sshHostId) {
     return <SshTabIcon hostId={tab.sshHostId} />;
   }

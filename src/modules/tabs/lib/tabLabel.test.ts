@@ -40,3 +40,23 @@ describe("labelFor (terminal tabs)", () => {
     expect(labelFor(terminalTab({ cwd: "C:\\Users\\me\\proj" }))).toBe("proj");
   });
 });
+
+describe("labelFor workspace marker", () => {
+  it("shows Workspace for mixed-connection tabs without a custom title", () => {
+    expect(
+      labelFor(terminalTab({ cwd: "/Users/me/proj" }), { workspace: true }),
+    ).toBe("Workspace");
+  });
+
+  it("still prefers a custom title over the workspace marker", () => {
+    expect(
+      labelFor(terminalTab({ customTitle: "DB" }), { workspace: true }),
+    ).toBe("DB");
+  });
+
+  it("ignores a false workspace flag", () => {
+    expect(
+      labelFor(terminalTab({ cwd: "/Users/me/proj" }), { workspace: false }),
+    ).toBe("proj");
+  });
+});
