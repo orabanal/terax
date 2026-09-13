@@ -8,6 +8,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
@@ -24,6 +25,7 @@ import {
   setAutostart,
   setEditorAutoSave,
   setEditorAutoSaveDelay,
+  setOpencodeNotifications,
   setRestoreWindowState,
   setShowHidden,
   setSftpTabVisible,
@@ -41,6 +43,10 @@ import {
   setServerStatsInterval,
 } from "@/modules/settings/store";
 import { useTheme } from "@/modules/theme";
+import {
+  ensureLocalPlugin,
+  opencodeLocalStatus,
+} from "@/modules/agents/lib/opencodeNotify";
 import {
   ComputerIcon,
   Moon02Icon,
@@ -98,6 +104,9 @@ export function GeneralSection() {
   const terminalScrollback = usePreferencesStore((s) => s.terminalScrollback);
   const zoomLevel = usePreferencesStore((s) => s.zoomLevel);
   const agentNotifications = usePreferencesStore((s) => s.agentNotifications);
+  const opencodeNotifications = usePreferencesStore(
+    (s) => s.opencodeNotifications,
+  );
   const showServerStats = usePreferencesStore((s) => s.showServerStats);
   const serverStatsInterval = usePreferencesStore((s) => s.serverStatsInterval);
 
@@ -418,6 +427,7 @@ export function GeneralSection() {
             onCheckedChange={(v) => void setAgentNotifications(v)}
           />
         </SettingRow>
+        <OpenCodeNotificationsRow enabled={opencodeNotifications} />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -528,6 +538,70 @@ function AutoSaveDelayInput({
           className="h-8 w-20 rounded-md border border-border bg-background px-2.5 text-right text-[12px] md:text-[12px] tabular-nums outline-none focus:border-foreground/40 focus-visible:ring-0 focus-visible:border-foreground/40 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
         />
         <span className="text-[11px] text-muted-foreground">ms</span>
+      </div>
+    </SettingRow>
+  );
+}
+
+function statusText(s: { installed: boolean; version: number } | null): string {
+  if (s === null) return "Status unavailable";
+  return s.installed ? `Plugin installed (v${s.version})` : "Plugin not installed";
+}
+
+function OpenCodeNotificationsRow({ enabled }: { enabled: boolean }) {
+  const [status, setStatus] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!enabled) {
+      setStatus(null);
+      return;
+    }
+    let alive = true;
+    void opencodeLocalStatus().then((s) => {
+      if (alive) setStatus(statusText(s));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [enabled]);
+
+  const onInstall = async () => {
+    setBusy(true);
+    try {
+      const s = await ensureLocalPlugin();
+      setStatus(
+        s?.installed ? `Plugin installed (v${s.version})` : "Install failed — see logs",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <SettingRow
+      title="OpenCode notifications"
+      description="Same alerts for opencode running in a terminal (local or SSH): finished, errors and permission requests. Installs a tiny event plugin; SSH hosts are set up automatically on connect."
+    >
+      <div className="flex items-center gap-2">
+        {enabled && status ? (
+          <span className="text-[11px] text-muted-foreground">{status}</span>
+        ) : null}
+        {enabled ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 px-2 text-[11px]"
+            disabled={busy}
+            onClick={() => void onInstall()}
+          >
+            {busy ? "Installing…" : "Install plugin"}
+          </Button>
+        ) : null}
+        <Switch
+          checked={enabled}
+          onCheckedChange={(v) => void setOpencodeNotifications(v)}
+        />
       </div>
     </SettingRow>
   );

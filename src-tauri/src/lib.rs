@@ -1,6 +1,6 @@
 pub mod modules;
 
-use modules::{agent, fs, git, net, pty, secrets, shell, sftp, ssh, transcript_watcher, workspace};
+use modules::{agent, fs, git, net, opencode_notify, pty, secrets, shell, sftp, ssh, transcript_watcher, workspace};
 use std::sync::Mutex;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 #[cfg(target_os = "macos")]
@@ -156,10 +156,12 @@ pub fn run() {
                 });
             }
             transcript_watcher::start(_app.handle().clone());
+            opencode_notify::start(_app.handle().clone());
             Ok(())
         })
         .manage(pty::PtyState::default())
         .manage(ssh::SshState::default())
+        .manage(ssh::SshTailState::default())
         .manage(sftp::SftpState::default())
         .manage(fs::copy::CopyState::default())
         .manage(shell::ShellState::default())
@@ -237,6 +239,9 @@ pub fn run() {
             workspace::workspace_current_dir,
             get_launch_dir,
             open_settings_window,
+            opencode_notify::opencode_notify_plugin_source,
+            opencode_notify::opencode_notify_local_status,
+            opencode_notify::opencode_notify_install_local,
             agent::agent_enable_claude_hooks,
             agent::agent_claude_hooks_status,
             secrets::secrets_get,
@@ -251,6 +256,8 @@ pub fn run() {
             ssh::ssh_resize,
             ssh::ssh_close,
             ssh::ssh_exec,
+            ssh::ssh_tail_start,
+            ssh::ssh_tail_stop,
             sftp::sftp_open,
             sftp::sftp_list_dir,
             sftp::sftp_close,

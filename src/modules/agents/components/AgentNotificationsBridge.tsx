@@ -4,17 +4,28 @@ import {
   hasLeaf,
   leafIdForPty,
   leafIds,
+  ptyIdForLeaf,
   subscribePtyData,
 } from "@/modules/terminal";
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useMemo, useRef } from "react";
 import { PtyClaudeTracker } from "../lib/claudeCliTracker";
+import {
+  OpencodeTailBuffer,
+  ensureLocalPlugin,
+  installRemotePlugin,
+  remotePluginCurrent,
+  startRemoteTail,
+  stopRemoteTail,
+  type TailChunk,
+} from "../lib/opencodeNotify";
 import { maybeTriggerManagedReview } from "../lib/review";
 import { routeAgentNotification } from "../lib/route";
 import type { AgentSession, AgentSignal } from "../lib/types";
 import { useWindowFocus } from "../lib/useWindowFocus";
 import { useAgentStore } from "../store/agentStore";
 import { useManagedAgentsStore } from "../store/managedAgentsStore";
+import { usePreferencesStore } from "@/modules/settings/preferences";
 
 type Activate = (tabId: number, leafId: number) => void;
 type Ctx = {
@@ -236,6 +247,96 @@ function handleSshStateChange(
   }
 }
 
+// ─── OpenCode plugin signals (local watcher + remote tail) ────────────────
+
+function opencodeEnabled(): boolean {
+  return usePreferencesStore.getState().opencodeNotifications;
+}
+
+type OpencodePayload = {
+  kind: "finished" | "attention" | "error";
+  sessionId?: string | null;
+  directory?: string | null;
+  project?: string | null;
+  detail?: string | null;
+  origin: "local" | "ssh";
+};
+
+function findLeafForOpencode(
+  tabs: Tab[],
+  activeId: number,
+  sig: OpencodePayload & { sshId?: number | null },
+): { leafId: number; tabId: number; title: string } | null {
+  if (sig.sshId != null) {
+    // Remote: the plugin only knows cwd, not Terax leaves. Prefer a leaf of
+    // the same SSH session in the active tab, else the first one there.
+    const cands: { leafId: number; tabId: number; title: string }[] = [];
+    for (const t of tabs) {
+      if (t.kind !== "terminal") continue;
+      for (const lId of leafIds(t.paneTree)) {
+        if (ptyIdForLeaf(lId) === sig.sshId) {
+          cands.push({ leafId: lId, tabId: t.id, title: t.title });
+        }
+      }
+    }
+    if (cands.length === 0) return null;
+    return cands.find((c) => c.tabId === activeId) ?? cands[0];
+  }
+  if (sig.directory) return findLeafForPath(tabs, sig.directory);
+  return null;
+}
+
+function handleOpencodeSignal(
+  sig: OpencodePayload & { sshId?: number | null },
+  ctx: Ctx,
+): void {
+  if (!usePreferencesStore.getState().opencodeNotifications) return;
+  const store = useAgentStore.getState();
+  const match = findLeafForOpencode(ctx.tabs, ctx.activeId, sig);
+  const kind = sig.kind === "finished" ? "finished" : "attention";
+  const title =
+    sig.kind === "finished"
+      ? "opencode finished"
+      : sig.kind === "error"
+        ? "opencode error"
+        : "opencode needs your input";
+  const body = sig.detail ?? match?.title ?? sig.project ?? undefined;
+
+  if (match) {
+    if (!store.sessions[match.leafId]) {
+      store.start(match.leafId, match.tabId, "opencode");
+    }
+    store.setStatus(match.leafId, "waiting");
+    routeAgentNotification({
+      source: "terminal",
+      agent: "opencode",
+      kind,
+      title,
+      body,
+      focused: ctx.focused,
+      visible: ctx.activeId === match.tabId,
+      allowToast: kind === "attention",
+      tabId: match.tabId,
+      leafId: match.leafId,
+      onActivate: () => ctx.onActivate(match.tabId, match.leafId),
+    });
+    if (kind === "finished") maybeTriggerManagedReview(match.leafId);
+  } else {
+    // Could not map to a pane — generic notification without a target.
+    routeAgentNotification({
+      source: "terminal",
+      agent: "opencode",
+      kind,
+      title,
+      body,
+      focused: ctx.focused,
+      visible: false,
+      allowToast: kind === "attention",
+      onActivate: () => {},
+    });
+  }
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function AgentNotificationsBridge({
@@ -287,6 +388,50 @@ export function AgentNotificationsBridge({
     };
   }, []);
 
+  // OpenCode plugin signals: local watcher file + remote tails.
+  const tailBufferRef = useRef(new OpencodeTailBuffer());
+  const remoteTailsRef = useRef(new Map<number, number>());
+
+  useEffect(() => {
+    // Idempotent: installs/refreshes the local plugin when enabled.
+    if (opencodeEnabled()) void ensureLocalPlugin();
+    let alive = true;
+    const unlistens: Array<() => void> = [];
+    listen<OpencodePayload>("terax:opencode-signal", (e) =>
+      handleOpencodeSignal(e.payload, ctxRef.current),
+    )
+      .then((u) => {
+        if (alive) unlistens.push(u);
+        else u();
+      })
+      .catch(() => {});
+    listen<TailChunk>("terax:opencode-tail", (e) => {
+      const sigs = tailBufferRef.current.push(e.payload.sshId, e.payload.chunk);
+      for (const s of sigs) handleOpencodeSignal(s, ctxRef.current);
+    })
+      .then((u) => {
+        if (alive) unlistens.push(u);
+        else u();
+      })
+      .catch(() => {});
+    listen<{ tailId: number; sshId: number }>(
+      "terax:opencode-tail-closed",
+      (e) => {
+        tailBufferRef.current.clear(e.payload.sshId);
+        remoteTailsRef.current.delete(e.payload.sshId);
+      },
+    )
+      .then((u) => {
+        if (alive) unlistens.push(u);
+        else u();
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+      for (const u of unlistens) u();
+    };
+  }, []);
+
   // SSH text-based tracking -- one PtyClaudeTracker per SSH leaf.
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
@@ -298,6 +443,47 @@ export function AgentNotificationsBridge({
     () => sshLeafIds(tabs).map((x) => x.leafId).join(","),
     [tabs],
   );
+
+  // OpenCode remote setup: ensure the notifier plugin on each SSH host and
+  // stream its events file. Idempotent and version-checked; one tail per
+  // SSH session.
+  const remoteSetupRef = useRef(new Set<number>());
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sshLeafKey is the intentional trigger
+  useEffect(() => {
+    const sshLeaves = sshLeafIds(tabsRef.current);
+    if (sshLeaves.length === 0 || !opencodeEnabled()) return;
+    const live = new Set<number>();
+    for (const { leafId } of sshLeaves) {
+      const sshId = ptyIdForLeaf(leafId);
+      if (sshId !== null) live.add(sshId);
+    }
+    // Stop tails for sessions that went away.
+    for (const [sshId, tailId] of remoteTailsRef.current) {
+      if (!live.has(sshId)) {
+        remoteTailsRef.current.delete(sshId);
+        tailBufferRef.current.clear(sshId);
+        void stopRemoteTail(tailId);
+      }
+    }
+    for (const sshId of live) {
+      if (remoteTailsRef.current.has(sshId)) continue;
+      if (remoteSetupRef.current.has(sshId)) continue;
+      remoteSetupRef.current.add(sshId);
+      void (async () => {
+        try {
+          const current = await remotePluginCurrent(sshId);
+          if (!current) {
+            const ok = await installRemotePlugin(sshId);
+            if (!ok) return;
+          }
+          const tailId = await startRemoteTail(sshId);
+          if (tailId !== null) remoteTailsRef.current.set(sshId, tailId);
+        } finally {
+          remoteSetupRef.current.delete(sshId);
+        }
+      })();
+    }
+  }, [sshLeafKey]);
 
   useEffect(() => {
     const sshLeaves = sshLeafIds(tabsRef.current);

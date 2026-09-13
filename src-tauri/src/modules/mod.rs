@@ -2,6 +2,7 @@ pub mod agent;
 pub mod fs;
 pub mod git;
 pub mod net;
+pub mod opencode_notify;
 pub mod proc;
 pub mod pty;
 pub mod secrets;

@@ -16,6 +16,106 @@ pub struct SshState {
     next_id: AtomicU32,
 }
 
+#[derive(Default)]
+pub struct SshTailState {
+    tails: Arc<RwLock<HashMap<u32, tokio::task::AbortHandle>>>,
+    next_id: AtomicU32,
+}
+
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SshTailChunk {
+    pub tail_id: u32,
+    pub ssh_id: u32,
+    pub chunk: String,
+}
+
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SshTailClosed {
+    pub tail_id: u32,
+    pub ssh_id: u32,
+}
+
+/// Stream a remote file (used for `~/.terax-opencode-events.jsonl`) over a
+/// dedicated exec channel. Chunks arrive as `terax:opencode-tail`; the
+/// frontend reassembles lines. Ends with `terax:opencode-tail-closed` when
+/// the channel breaks (disconnect, file missing with plain `tail`).
+#[tauri::command]
+pub async fn ssh_tail_start(
+    app: tauri::AppHandle,
+    ssh: tauri::State<'_, SshState>,
+    tails: tauri::State<'_, SshTailState>,
+    id: u32,
+    path: String,
+) -> Result<u32, String> {
+    use tauri::Emitter;
+    let handle = {
+        let sessions = ssh.sessions.read().unwrap();
+        let s = sessions
+            .get(&id)
+            .ok_or_else(|| format!("no ssh session {id}"))?;
+        s.handle.clone()
+    };
+    let mut channel = {
+        let h = handle.lock().await;
+        h.channel_open_session()
+            .await
+            .map_err(|e| format!("Failed to open tail channel: {e}"))?
+    };
+    // -n0: only new lines (never replay). -F: survive rotation/recreate.
+    let cmd = format!("tail -n0 -F {}", shell_escape(&path));
+    channel
+        .exec(true, cmd.as_bytes())
+        .await
+        .map_err(|e| format!("tail exec failed: {e}"))?;
+
+    let tail_id = tails.next_id.fetch_add(1, Ordering::SeqCst) + 1;
+    let app_clone = app.clone();
+    let join = tokio::spawn(async move {
+        loop {
+            match channel.wait().await {
+                None => break,
+                Some(ChannelMsg::Data { data }) => {
+                    let chunk = String::from_utf8_lossy(&data).into_owned();
+                    if chunk.is_empty() {
+                        continue;
+                    }
+                    let _ = app_clone.emit(
+                        "terax:opencode-tail",
+                        SshTailChunk { tail_id, ssh_id: id, chunk },
+                    );
+                }
+                Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) => break,
+                Some(_) => {}
+            }
+        }
+        let _ = app_clone.emit(
+            "terax:opencode-tail-closed",
+            SshTailClosed { tail_id, ssh_id: id },
+        );
+    });
+    tails
+        .tails
+        .write()
+        .unwrap()
+        .insert(tail_id, join.abort_handle());
+    Ok(tail_id)
+}
+
+#[tauri::command]
+pub fn ssh_tail_stop(tails: tauri::State<'_, SshTailState>, tail_id: u32) -> Result<(), String> {
+    if let Some(handle) = tails.tails.write().unwrap().remove(&tail_id) {
+        handle.abort();
+    }
+    Ok(())
+}
+
+/// Minimal single-quote shell escaping for a remote path argument.
+fn shell_escape(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
 impl Default for SshState {
     fn default() -> Self {
         Self {
