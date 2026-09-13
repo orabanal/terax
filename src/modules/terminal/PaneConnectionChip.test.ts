@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describePaneConnection } from "./PaneConnectionChip";
+import { describePaneConnection, paneConnectionSignature } from "./PaneConnectionChip";
 
 const sshConfig = () => ({
   sshHost: { id: "h1", name: "Discador" },
@@ -42,8 +42,7 @@ describe("describePaneConnection", () => {
     expect(describePaneConnection(7, read)).toMatchObject({ name: "h1" });
   });
 
-  it("resolves local leaves without a session", () => {
-    const read = {
+  it("resolves local leaves without a session", () => {    const read = {
       config: () => null,
       connected: () => false,
       sshDisconnected: () => false,
@@ -55,5 +54,27 @@ describe("describePaneConnection", () => {
     expect(
       describePaneConnection(7, { ...read, connected: () => true }),
     ).toEqual({ kind: "local", status: "up" });
+  });
+});
+
+describe("paneConnectionSignature", () => {
+  it("distinguishes identity and status changes only", () => {
+    expect(
+      paneConnectionSignature({ kind: "local", status: "starting" }),
+    ).toBe("local:starting");
+    expect(paneConnectionSignature({ kind: "local", status: "starting" })).toBe(
+      paneConnectionSignature({ kind: "local", status: "starting" }),
+    );
+    expect(
+      paneConnectionSignature({ kind: "local", status: "starting" }),
+    ).not.toBe(paneConnectionSignature({ kind: "local", status: "up" }));
+    expect(
+      paneConnectionSignature({
+        kind: "ssh",
+        name: "Discador",
+        hostId: "h1",
+        status: "up",
+      }),
+    ).toBe("ssh:h1:up");
   });
 });

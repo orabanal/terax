@@ -19,6 +19,7 @@ import {
 import {
   disposeSession,
   getLeafSessionConfig,
+  seedLeafSession,
 } from "@/modules/terminal/lib/useTerminalSession";
 import { labelFor } from "./tabLabel";
 import { isWorkspaceTree } from "./splitDrop";
@@ -802,10 +803,20 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     );
   }, []);
 
-  /** Split the active leaf of `tabId` along `dir`. Returns the new leaf id. */
+  /** Split the active leaf of `tabId` along `dir`. Returns the new leaf id.
+   *  The new leaf inherits the source leaf's live connection (SSH host /
+   *  command), so splitting a remote pane yields a remote pane — and its
+   *  indicator — instead of falling back to tab-level defaults. */
   const splitActivePane = useCallback(
     (tabId: number, dir: SplitDir): number | null => {
       let newLeafId: number | null = null;
+      // Single-slot seed (array so closure writes survive narrowing).
+      const seeds: Array<{
+        newId: number;
+        cwd?: string;
+        command?: string[];
+        sshHost?: SshHost & { password?: string };
+      }> = [];
       setTabs((curr) =>
         curr.map((t) => {
           if (t.id !== tabId || t.kind !== "terminal" || t.blocks) return t;
@@ -821,9 +832,26 @@ export function useTabs(initial?: Partial<TerminalTab>) {
             dir,
             t.cwd,
           );
+          // Capture the source leaf's live connection now; the seed lands
+          // before the new mount so its session (and chip) start SSH.
+          const srcCfg = getLeafSessionConfig(t.activeLeafId);
+          seeds.push({
+            newId: leafId,
+            cwd: findLeafCwd(paneTree, leafId),
+            command: srcCfg?.command ?? t.command,
+            sshHost: srcCfg?.sshHost ?? t.sshHost,
+          });
           return { ...t, paneTree, activeLeafId: leafId };
         }),
       );
+      const s = seeds[0];
+      if (s) {
+        seedLeafSession(s.newId, {
+          initialCwd: s.cwd,
+          command: s.command,
+          sshHost: s.sshHost,
+        });
+      }
       return newLeafId;
     },
     [],
@@ -972,20 +1000,43 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     [],
   );
 
-  /** Clone a terminal tab, preserving SSH config, command, cwd and pane tree. */
+  /** Clone a terminal tab, preserving per-leaf SSH/command connections, cwd
+   *  and pane tree. Each cloned leaf is seeded from its source leaf's live
+   *  session config, so mixed local + SSH workspaces clone faithfully
+   *  instead of collapsing to the tab-level connection. */
   const cloneTab = useCallback(
     (tabId: number): number | null => {
       let newTabId: number | null = null;
+      const seeds: Array<{
+        newId: number;
+        cwd?: string;
+        command?: string[];
+        sshHost?: SshHost & { password?: string };
+      }> = [];
       setTabs((curr) => {
         const tab = curr.find((t) => t.id === tabId);
         if (tab?.kind !== "terminal") return curr;
 
+        // Tab-level fallbacks for sources with no live record yet. Captured
+        // here where `tab` is still narrowed to TerminalTab.
+        const tabCommand = tab.command;
+        const tabSshHost = tab.sshHost;
         const idMap = new Map<number, number>();
 
         function cloneNode(node: PaneNode): PaneNode {
           if (node.kind === "leaf") {
             const newId = nextIdRef.current++;
             idMap.set(node.id, newId);
+            // Capture the source leaf's live connection now; the seed is
+            // applied after setTabs so the new mount finds its record ready.
+            // Unmounted sources (no record yet) fall back to tab defaults.
+            const cfg = getLeafSessionConfig(node.id);
+            seeds.push({
+              newId,
+              cwd: node.cwd,
+              command: cfg?.command ?? tabCommand,
+              sshHost: cfg?.sshHost ?? tabSshHost,
+            });
             return { kind: "leaf", id: newId, cwd: node.cwd };
           }
           const newSplitId = nextIdRef.current++;
@@ -1024,6 +1075,13 @@ export function useTabs(initial?: Partial<TerminalTab>) {
         next.splice(at === -1 ? next.length : at + 1, 0, newTab);
         return next;
       });
+      for (const s of seeds) {
+        seedLeafSession(s.newId, {
+          initialCwd: s.cwd,
+          command: s.command,
+          sshHost: s.sshHost,
+        });
+      }
       if (newTabId !== null) setActiveId(newTabId);
       return newTabId;
     },

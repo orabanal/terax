@@ -1,5 +1,10 @@
 import { cn } from "@/lib/utils";
-import type { SplitDropRect, SplitDropZone } from "./lib/splitDrop";
+import {
+  paneStripStyle,
+  windowStripStyle,
+  type SplitDropRect,
+  type SplitDropZone,
+} from "./lib/splitDrop";
 
 type Props = {
   zone: SplitDropZone;
@@ -16,49 +21,46 @@ const EDGE_LABEL: Record<string, string> = {
   "col-false": "abajo",
 };
 
-/** Half of the target rect at the drop edge, in content coordinates. */
-function stripStyle(
-  zone: SplitDropZone,
-  r: SplitDropRect,
-): { left: number; top: number; width: number; height: number } {
-  if (zone.dir === "row") {
-    const w = Math.max(0, r.width / 2);
-    return {
-      left: zone.before ? r.left : r.left + r.width - w,
-      top: r.top,
-      width: w,
-      height: r.height,
-    };
-  }
-  const h = Math.max(0, r.height / 2);
-  return {
-    left: r.left,
-    top: zone.before ? r.top : r.top + r.height - h,
-    width: r.width,
-    height: h,
-  };
-}
-
-/** Drop highlight while a tab is dragged over the content area. The strip
- *  hugs the hovered pane's edge (pane-level split) or spans the whole
- *  window edge (window-level split), so the landing spot is unambiguous.
+/** Drop highlight while a tab is dragged over the content area.
+ *
+ *  Window-level (outer 12px edge): the strip spans the whole window edge —
+ *  the drop grafts against the entire tree.
+ *
+ *  Pane-level: a spotlight dims everything outside the target pane, the pane
+ *  itself gets a solid outline, and the strip sits inset inside that pane —
+ *  so "bottom of this panel" can never be mistaken for "bottom of the whole
+ *  window", even when the pane spans the full width (stacked splits).
+ *
  *  Pointer-events free so the terminal underneath keeps working; the drop
  *  itself is resolved by coordinates on mouseup. */
 export function SplitDropOverlay({ zone, valid, highlight, windowLevel }: Props) {
-  const strip = stripStyle(zone, highlight);
+  const strip = windowLevel
+    ? windowStripStyle(zone, highlight)
+    : paneStripStyle(zone, highlight);
+  const tone = valid
+    ? { dim: "bg-primary/5", edge: "border-primary/70 bg-primary/15" }
+    : { dim: "bg-destructive/5", edge: "border-destructive/50 bg-destructive/10" };
   return (
     <div className="pointer-events-none absolute inset-0 z-30">
+      {windowLevel ? (
+        <div className={cn("absolute inset-0", tone.dim)} />
+      ) : (
+        <div
+          className={cn(
+            "absolute rounded-md border-2",
+            valid ? "border-primary/70" : "border-destructive/50",
+          )}
+          style={{
+            left: highlight.left,
+            top: highlight.top,
+            width: highlight.width,
+            height: highlight.height,
+            boxShadow: "0 0 0 9999px rgb(0 0 0 / 0.35)",
+          }}
+        />
+      )}
       <div
-        className={cn(
-          "absolute inset-0",
-          valid ? "bg-primary/5" : "bg-destructive/5",
-        )}
-      />
-      <div
-        className={cn(
-          "absolute rounded-md border-2 border-dashed",
-          valid ? "border-primary/70 bg-primary/15" : "border-destructive/50 bg-destructive/10",
-        )}
+        className={cn("absolute rounded-md border-2 border-dashed", tone.edge)}
         style={{
           left: strip.left,
           top: strip.top,

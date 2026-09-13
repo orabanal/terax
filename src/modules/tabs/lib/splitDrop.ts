@@ -115,6 +115,51 @@ type GraftTab = {
   blocks?: boolean;
 };
 
+/** Inset (px) of a pane-level drop strip inside its target pane, so the
+ *  strip reads as belonging to that pane and never spans the whole window. */
+export const PANE_STRIP_INSET = 6;
+
+/** Edge half of a rect: the drop strip for a window-level (whole content)
+ *  target, spanning the full edge. */
+export function windowStripStyle(
+  zone: SplitDropZone,
+  r: SplitDropRect,
+): SplitDropRect {
+  if (zone.dir === "row") {
+    const w = Math.max(0, r.width / 2);
+    return {
+      left: zone.before ? r.left : r.left + r.width - w,
+      top: r.top,
+      width: w,
+      height: r.height,
+    };
+  }
+  const h = Math.max(0, r.height / 2);
+  return {
+    left: r.left,
+    top: zone.before ? r.top : r.top + r.height - h,
+    width: r.width,
+    height: h,
+  };
+}
+
+/** Edge half of a target pane, pulled inside the pane by `PANE_STRIP_INSET`
+ *  on every side. A stacked pane's bottom strip therefore sits visibly
+ *  inside that pane instead of bleeding across the whole window. */
+export function paneStripStyle(
+  zone: SplitDropZone,
+  r: SplitDropRect,
+  inset: number = PANE_STRIP_INSET,
+): SplitDropRect {
+  const base = windowStripStyle(zone, r);
+  return {
+    left: base.left + inset,
+    top: base.top + inset,
+    width: Math.max(0, base.width - inset * 2),
+    height: Math.max(0, base.height - inset * 2),
+  };
+}
+
 /** Whether a whole tab's panes may be grafted into another tab's split tree.
  *  Sessions travel with their leaf ids, so mixed connections are supported;
  *  block-mode tabs are excluded on both sides. */export function canGraftSplit(

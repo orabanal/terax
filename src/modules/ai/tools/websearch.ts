@@ -179,7 +179,7 @@ export function buildWebSearchTools(getConfig: () => WebSearchConfig | null): Re
   return {
     web_search: tool({
       description:
-        "Search the web for current information. Use when the user asks about recent events, documentation, packages, or anything requiring up-to-date knowledge beyond your training data. Returns a list of results with title, URL, and snippet.",
+        "Search the web for current or external-world information. Use when the user asks about weather, temperature, news, prices, sports scores, recent events, documentation, packages, third-party error messages, or anything requiring up-to-date knowledge beyond your training data. Prefer this over fetching web pages or APIs with shell commands. Returns a list of results with title, URL, and snippet.",
       inputSchema: z.object({
         query: z.string().describe("Search query. Be specific and concise."),
       }),

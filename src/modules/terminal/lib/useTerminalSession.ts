@@ -161,6 +161,23 @@ export function getLeafSessionConfig(leafId: number): {
   return { sshHost: s.sshHost ?? undefined, command: s.command };
 }
 
+/** Pre-register a session record for a fresh leaf id inheriting another
+ *  leaf's connection (SSH host / command) and cwd — used by split and
+ *  clone so the new pane dials the source's connection instead of the
+ *  tab-level defaults (which lose mixed local + SSH workspaces).
+ *  No PTY is opened here — the mount's `ensureSession` finds this record and
+ *  `openPtyForSession` dials the inherited connection. */
+export function seedLeafSession(
+  leafId: number,
+  opts: {
+    initialCwd?: string;
+    command?: string[];
+    sshHost?: SshHost & { password?: string };
+  },
+): void {
+  ensureSession(leafId, opts.initialCwd, false, opts.command, opts.sshHost);
+}
+
 /** Returns true if the session for `leafId` already has an active PTY. */
 export function isSessionConnected(leafId: number): boolean {
   return !!sessions.get(leafId)?.pty;

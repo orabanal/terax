@@ -3,7 +3,9 @@ import type { PaneNode } from "@/modules/terminal/lib/panes";
 import {
   canGraftSplit,
   isWorkspaceTree,
+  paneStripStyle,
   resolveSplitTarget,
+  windowStripStyle,
   zoneForPoint,
 } from "./splitDrop";
 
@@ -60,6 +62,50 @@ describe("resolveSplitTarget", () => {
   it("returns null outside the content or over gaps", () => {
     expect(resolveSplitTarget(content, panes, -1, 400)).toBeNull();
     expect(resolveSplitTarget(content, [], 500, 400)).toBeNull();
+  });
+});
+
+describe("drop strip geometry", () => {
+  it("spans the full edge for window-level targets", () => {
+    expect(windowStripStyle({ dir: "col", before: false }, rect)).toEqual({
+      left: 0,
+      top: 400,
+      width: 1000,
+      height: 400,
+    });
+    expect(windowStripStyle({ dir: "row", before: true }, rect)).toEqual({
+      left: 0,
+      top: 0,
+      width: 500,
+      height: 800,
+    });
+  });
+
+  it("insets the strip inside a pane-level target", () => {
+    // Stacked bottom pane spanning the full width: the strip must sit
+    // inside the pane, narrower and shorter than the whole window edge.
+    const pane = { left: 0, top: 400, width: 1000, height: 400 };
+    expect(paneStripStyle({ dir: "col", before: false }, pane)).toEqual({
+      left: 6,
+      top: 606,
+      width: 988,
+      height: 188,
+    });
+    // Side-by-side left pane, left edge: inset on every side.
+    const side = { left: 0, top: 0, width: 500, height: 800 };
+    expect(paneStripStyle({ dir: "row", before: true }, side)).toEqual({
+      left: 6,
+      top: 6,
+      width: 238,
+      height: 788,
+    });
+  });
+
+  it("clamps degenerate strips instead of going negative", () => {
+    const tiny = { left: 0, top: 0, width: 8, height: 8 };
+    const strip = paneStripStyle({ dir: "row", before: true }, tiny);
+    expect(strip.width).toBe(0);
+    expect(strip.height).toBe(0);
   });
 });
 
