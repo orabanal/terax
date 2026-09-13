@@ -1,33 +1,51 @@
 import { cn } from "@/lib/utils";
-import type { SplitDropZone } from "./lib/splitDrop";
+import type { SplitDropRect, SplitDropZone } from "./lib/splitDrop";
 
 type Props = {
   zone: SplitDropZone;
   valid: boolean;
+  /** Target rect (pane or whole content), relative to the content container. */
+  highlight: SplitDropRect;
+  windowLevel: boolean;
 };
 
-const LABEL: Record<string, string> = {
-  "row-true": "Soltar para dividir: izquierda",
-  "row-false": "Soltar para dividir: derecha",
-  "col-true": "Soltar para dividir: arriba",
-  "col-false": "Soltar para dividir: abajo",
+const EDGE_LABEL: Record<string, string> = {
+  "row-true": "izquierda",
+  "row-false": "derecha",
+  "col-true": "arriba",
+  "col-false": "abajo",
 };
 
-function highlightClass(zone: SplitDropZone): string {
+/** Half of the target rect at the drop edge, in content coordinates. */
+function stripStyle(
+  zone: SplitDropZone,
+  r: SplitDropRect,
+): { left: number; top: number; width: number; height: number } {
   if (zone.dir === "row") {
-    return zone.before
-      ? "inset-y-0 left-0 w-1/2"
-      : "inset-y-0 right-0 w-1/2";
+    const w = Math.max(0, r.width / 2);
+    return {
+      left: zone.before ? r.left : r.left + r.width - w,
+      top: r.top,
+      width: w,
+      height: r.height,
+    };
   }
-  return zone.before
-    ? "inset-x-0 top-0 h-1/2"
-    : "inset-x-0 bottom-0 h-1/2";
+  const h = Math.max(0, r.height / 2);
+  return {
+    left: r.left,
+    top: zone.before ? r.top : r.top + r.height - h,
+    width: r.width,
+    height: h,
+  };
 }
 
-/** Quadrant highlight while a tab is dragged over the content area.
+/** Drop highlight while a tab is dragged over the content area. The strip
+ *  hugs the hovered pane's edge (pane-level split) or spans the whole
+ *  window edge (window-level split), so the landing spot is unambiguous.
  *  Pointer-events free so the terminal underneath keeps working; the drop
  *  itself is resolved by coordinates on mouseup. */
-export function SplitDropOverlay({ zone, valid }: Props) {
+export function SplitDropOverlay({ zone, valid, highlight, windowLevel }: Props) {
+  const strip = stripStyle(zone, highlight);
   return (
     <div className="pointer-events-none absolute inset-0 z-30">
       <div
@@ -39,9 +57,14 @@ export function SplitDropOverlay({ zone, valid }: Props) {
       <div
         className={cn(
           "absolute rounded-md border-2 border-dashed",
-          highlightClass(zone),
           valid ? "border-primary/70 bg-primary/15" : "border-destructive/50 bg-destructive/10",
         )}
+        style={{
+          left: strip.left,
+          top: strip.top,
+          width: strip.width,
+          height: strip.height,
+        }}
       />
       <div className="absolute inset-x-0 top-3 flex justify-center">
         <span
@@ -53,7 +76,7 @@ export function SplitDropOverlay({ zone, valid }: Props) {
           )}
         >
           {valid
-            ? LABEL[`${zone.dir}-${zone.before}`]
+            ? `${windowLevel ? "Dividir ventana" : "Dividir panel"}: ${EDGE_LABEL[`${zone.dir}-${zone.before}`]}`
             : "No se puede soltar aqui"}
         </span>
       </div>

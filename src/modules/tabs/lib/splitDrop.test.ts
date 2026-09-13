@@ -3,6 +3,7 @@ import type { PaneNode } from "@/modules/terminal/lib/panes";
 import {
   canGraftSplit,
   isWorkspaceTree,
+  resolveSplitTarget,
   zoneForPoint,
 } from "./splitDrop";
 
@@ -25,6 +26,40 @@ describe("zoneForPoint", () => {
     expect(zoneForPoint(rect, 1000, 400)).toBeNull();
     expect(zoneForPoint(rect, 500, 800)).toBeNull();
     expect(zoneForPoint({ left: 0, top: 0, width: 0, height: 0 }, 0, 0)).toBeNull();
+  });
+});
+
+describe("resolveSplitTarget", () => {
+  const content = { left: 0, top: 0, width: 1000, height: 800 };
+  const panes = [
+    { leafId: 1, rect: { left: 0, top: 0, width: 500, height: 800 } },
+    { leafId: 2, rect: { left: 500, top: 0, width: 500, height: 800 } },
+  ];
+
+  it("targets the pane under the pointer with a pane-level zone", () => {
+    const at = resolveSplitTarget(content, panes, 750, 700);
+    expect(at).toMatchObject({
+      leafId: 2,
+      windowLevel: false,
+      zone: { dir: "col", before: false },
+    });
+    expect(at?.targetRect).toEqual(panes[1].rect);
+  });
+
+  it("prefers a window-level split at the outer content edge", () => {
+    // Bottom edge spans both panes: whole-window highlight, root graft.
+    const at = resolveSplitTarget(content, panes, 250, 795);
+    expect(at).toMatchObject({
+      leafId: null,
+      windowLevel: true,
+      zone: { dir: "col", before: false },
+    });
+    expect(at?.targetRect).toEqual(content);
+  });
+
+  it("returns null outside the content or over gaps", () => {
+    expect(resolveSplitTarget(content, panes, -1, 400)).toBeNull();
+    expect(resolveSplitTarget(content, [], 500, 400)).toBeNull();
   });
 });
 

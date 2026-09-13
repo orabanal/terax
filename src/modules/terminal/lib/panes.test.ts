@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   graftNode,
+  graftRoot,
   soleOriginTitle,
   stampOriginTitle,
   type PaneNode,
@@ -85,6 +86,29 @@ describe("graftNode", () => {
       children: [leaf(1), leaf(2)],
     };
     expect(graftNode(tree, 42, "row", leaf(9), false, 50)).toEqual(tree);
+  });
+});
+
+describe("graftRoot", () => {
+  it("wraps the whole tree so the graft lands beside every pane", () => {
+    const tree: PaneNode = {
+      kind: "split",
+      id: 7,
+      dir: "row",
+      children: [leaf(1), leaf(2)],
+    };
+    expect(graftRoot(tree, "col", leaf(9), false, 50)).toEqual({
+      kind: "split",
+      id: 50,
+      dir: "col",
+      children: [tree, leaf(9)],
+    });
+    expect(graftRoot(tree, "col", leaf(9), true, 50)).toEqual({
+      kind: "split",
+      id: 50,
+      dir: "col",
+      children: [leaf(9), tree],
+    });
   });
 });
 

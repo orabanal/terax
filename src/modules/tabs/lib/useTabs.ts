@@ -3,6 +3,7 @@ import {
   extractLeaf,
   findLeafCwd,
   graftNode,
+  graftRoot,
   hasLeaf,
   leafIds,
   nextLeafId,
@@ -1038,7 +1039,13 @@ export function useTabs(initial?: Partial<TerminalTab>) {
    * target tab to private.
    */
   const moveTabToSplit = useCallback(
-    (sourceId: number, targetId: number, dir: SplitDir, before: boolean) => {
+    (
+      sourceId: number,
+      targetId: number,
+      dir: SplitDir,
+      before: boolean,
+      atLeafId?: number | null,
+    ) => {
       if (sourceId === targetId) return;
       setTabs((curr) => {
         const source = curr.find((t) => t.id === sourceId);
@@ -1049,7 +1056,6 @@ export function useTabs(initial?: Partial<TerminalTab>) {
         if (source.blocks || target.blocks) return curr;
         const moving = leafIds(source.paneTree);
         if (moving.length === 0) return curr;
-        if (!hasLeaf(target.paneTree, target.activeLeafId)) return curr;
         if (
           leafIds(target.paneTree).length + moving.length >
           MAX_PANES_PER_TAB
@@ -1068,14 +1074,24 @@ export function useTabs(initial?: Partial<TerminalTab>) {
           ? stampOriginTitle(source.paneTree, sourceName)
           : source.paneTree;
         const splitId = nextIdRef.current++;
-        const newTree = graftNode(
-          target.paneTree,
-          target.activeLeafId,
-          dir,
-          stamped,
-          before,
-          splitId,
-        );
+        // Pane-level drop grafts next to the hovered pane; a window-level
+        // drop (atLeafId null) grafts against the whole tree. A stale leaf
+        // falls back to the focused pane.
+        const anchor =
+          atLeafId != null && hasLeaf(target.paneTree, atLeafId)
+            ? atLeafId
+            : null;
+        const newTree =
+          anchor !== null
+            ? graftNode(
+                target.paneTree,
+                anchor,
+                dir,
+                stamped,
+                before,
+                splitId,
+              )
+            : graftRoot(target.paneTree, dir, stamped, before, splitId);
         return curr
           .filter((t) => t.id !== sourceId)
           .map((t) => {

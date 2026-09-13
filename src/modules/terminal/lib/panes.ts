@@ -147,6 +147,26 @@ export function graftNode(
 }
 
 /**
+ * Graft a subtree against the whole tree (window-level split): the moved
+ * panes land beside every existing pane, e.g. below two side-by-side panes.
+ * `before` puts the grafted subtree first (for left/top drops).
+ */
+export function graftRoot(
+  tree: PaneNode,
+  dir: SplitDir,
+  node: PaneNode,
+  before: boolean,
+  newSplitId: PaneId,
+): PaneNode {
+  return {
+    kind: "split",
+    id: newSplitId,
+    dir,
+    children: before ? [node, tree] : [tree, node],
+  };
+}
+
+/**
  * Remove a leaf and collapse single-child splits left in its wake. Returns
  * `null` when the entire subtree is gone.
  */

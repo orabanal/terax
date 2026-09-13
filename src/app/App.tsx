@@ -893,8 +893,14 @@ export default function App() {
   const workspaceContentRef = useRef<HTMLDivElement>(null);
 
   const handleSplitDrop = useCallback(
-    (sourceId: number, targetId: number, dir: SplitDir, before: boolean) => {
-      moveTabToSplit(sourceId, targetId, dir, before);
+    (
+      sourceId: number,
+      targetId: number,
+      dir: SplitDir,
+      before: boolean,
+      atLeafId: number | null,
+    ) => {
+      moveTabToSplit(sourceId, targetId, dir, before, atLeafId);
     },
     [moveTabToSplit],
   );

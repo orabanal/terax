@@ -51,6 +51,64 @@ export function zoneForPoint(
   return { dir: "col", before: false };
 }
 
+/** A pane under the pointer, with its rect in content coordinates. */
+export type SplitPaneHit = {
+  leafId: number;
+  rect: SplitDropRect;
+};
+
+export type SplitDropTarget = {
+  zone: SplitDropZone;
+  /** Leaf to split, or `null` for a window-level (whole tree) split. */
+  leafId: number | null;
+  /** Rect the highlight strip is drawn from: the pane, or the whole content. */
+  targetRect: SplitDropRect;
+  windowLevel: boolean;
+};
+
+/** Pointer band (px) along the outer content edge that targets a
+ *  window-level split spanning every pane. Inside a pane, edge bands split
+ *  that pane only. */
+export const WINDOW_EDGE_PX = 12;
+
+/** Resolve a pointer position to a pane-level or window-level drop target.
+ *  Returns `null` outside the content rect or over gaps between panes. */
+export function resolveSplitTarget(
+  contentRect: SplitDropRect,
+  panes: SplitPaneHit[],
+  x: number,
+  y: number,
+): SplitDropTarget | null {
+  if (contentRect.width <= 0 || contentRect.height <= 0) return null;
+  const rx = x - contentRect.left;
+  const ry = y - contentRect.top;
+  if (rx < 0 || rx >= contentRect.width || ry < 0 || ry >= contentRect.height) {
+    return null;
+  }
+  const dOuter = Math.min(
+    rx,
+    contentRect.width - rx,
+    ry,
+    contentRect.height - ry,
+  );
+  if (dOuter < WINDOW_EDGE_PX) {
+    const zone = zoneForPoint(contentRect, x, y);
+    if (!zone) return null;
+    return { zone, leafId: null, targetRect: contentRect, windowLevel: true };
+  }
+  const hit = panes.find(
+    (p) =>
+      x >= p.rect.left &&
+      x < p.rect.left + p.rect.width &&
+      y >= p.rect.top &&
+      y < p.rect.top + p.rect.height,
+  );
+  if (!hit) return null;
+  const zone = zoneForPoint(hit.rect, x, y);
+  if (!zone) return null;
+  return { zone, leafId: hit.leafId, targetRect: hit.rect, windowLevel: false };
+}
+
 type GraftTab = {
   id: number;
   kind: string;

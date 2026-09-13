@@ -44,7 +44,9 @@ import { leafIds, type SplitDir } from "@/modules/terminal/lib/panes";
 import {
   canGraftSplit,
   isWorkspaceTree,
+  resolveSplitTarget,
   zoneForPoint,
+  type SplitDropRect,
   type SplitDropZone,
 } from "./lib/splitDrop";
 import { SplitDropOverlay } from "./SplitDropOverlay";
@@ -81,12 +83,14 @@ type Props = {
   onMoveTab: (tabId: number, toIndex: number) => void;
   /** Container of the active tab content, used to detect tab-to-split drops. */
   contentRef: React.RefObject<HTMLElement | null>;
-  /** Graft a whole tab's panes into another tab's split tree. */
+  /** Graft a whole tab's panes into another tab's split tree. `atLeafId`
+   *  splits that pane; `null` splits the whole window (root graft). */
   onSplitDrop: (
     sourceId: number,
     targetId: number,
     dir: SplitDir,
     before: boolean,
+    atLeafId: number | null,
   ) => void;
   /** Tab-drag preview lifecycle: App freezes the visible content on the
    *  drop target while a drag is active so the dragged tab's own content
@@ -148,6 +152,10 @@ export function TabBar({
   const [splitDrag, setSplitDrag] = useState<{
     zone: SplitDropZone;
     valid: boolean;
+    atLeafId: number | null;
+    /** Highlight target rect, relative to the content container. */
+    highlight: SplitDropRect;
+    windowLevel: boolean;
   } | null>(null);
   const tabsRef = useRef(scrollableTabs);
   tabsRef.current = scrollableTabs;
@@ -186,21 +194,40 @@ export function TabBar({
     const DRAG_THRESHOLD = 4;
 
     // Tab-to-split evaluation: when the pointer is over the content area,
-    // resolve the quadrant zone and whether grafting the dragged tab there
-    // is valid. Returns null outside the content area. The drop target is
-    // the content owner captured at drag start, never the live selection
-    // (which must not move mid-drag).
+    // resolve the pane under it (or a window-level target at the outer
+    // edge) and whether grafting the dragged tab there is valid. Returns
+    // null outside the content area. The drop target is the content owner
+    // captured at drag start, never the live selection (which must not
+    // move mid-drag).
     const evalSplit = (
       tabId: number,
       targetId: number,
       x: number,
       y: number,
-    ): { zone: SplitDropZone; valid: boolean; targetId: number } | null => {
+    ): {
+      zone: SplitDropZone;
+      valid: boolean;
+      targetId: number;
+      atLeafId: number | null;
+      highlight: SplitDropRect;
+      windowLevel: boolean;
+    } | null => {
       const el = contentRef.current;
       if (!el) return null;
-      const rect = el.getBoundingClientRect();
-      const zone = zoneForPoint(rect, x, y);
-      if (!zone) return null;
+      const contentRect = el.getBoundingClientRect();
+      const paneEls = el.querySelectorAll<HTMLElement>("[data-pane-leaf]");
+      const panes = Array.from(paneEls, (paneEl) => {
+        const r = paneEl.getBoundingClientRect();
+        return {
+          leafId: Number(paneEl.dataset.paneLeaf),
+          rect: {
+            left: r.left,
+            top: r.top,
+            width: r.width,
+            height: r.height,
+          },
+        };
+      }).filter((p) => Number.isFinite(p.leafId) && p.rect.width > 0 && p.rect.height > 0);
       const full = fullTabsRef.current;
       const source = full.find((t) => t.id === tabId) ?? null;
       const target = full.find((t) => t.id === targetId) ?? null;
@@ -216,7 +243,40 @@ export function TabBar({
           leafIds(target.paneTree).length,
           MAX_PANES_PER_TAB,
         );
-      return { zone, valid, targetId };
+      if (panes.length === 0) {
+        // Non-terminal content: window-level zone only (always invalid,
+        // the overlay shows why the drop is rejected).
+        const zone = zoneForPoint(contentRect, x, y);
+        if (!zone) return null;
+        return {
+          zone,
+          valid: false,
+          targetId,
+          atLeafId: null,
+          highlight: {
+            left: 0,
+            top: 0,
+            width: contentRect.width,
+            height: contentRect.height,
+          },
+          windowLevel: true,
+        };
+      }
+      const at = resolveSplitTarget(contentRect, panes, x, y);
+      if (!at) return null;
+      return {
+        zone: at.zone,
+        valid,
+        targetId,
+        atLeafId: at.leafId,
+        highlight: {
+          left: at.targetRect.left - contentRect.left,
+          top: at.targetRect.top - contentRect.top,
+          width: at.targetRect.width,
+          height: at.targetRect.height,
+        },
+        windowLevel: at.windowLevel,
+      };
     };
 
     const endDragVisuals = () => {
@@ -246,7 +306,13 @@ export function TabBar({
       // Over the content area: split mode (reorder indicator hidden).
       const split = evalSplit(drag.tabId, drag.targetId, e.clientX, e.clientY);
       if (split) {
-        setSplitDrag({ zone: split.zone, valid: split.valid });
+        setSplitDrag({
+          zone: split.zone,
+          valid: split.valid,
+          atLeafId: split.atLeafId,
+          highlight: split.highlight,
+          windowLevel: split.windowLevel,
+        });
         setDropTarget(null);
         setGhostPos({ x: e.clientX, y: e.clientY });
         return;
@@ -293,6 +359,7 @@ export function TabBar({
             split.targetId,
             split.zone.dir,
             split.zone.before,
+            split.atLeafId,
           );
         }
         return;
@@ -837,7 +904,12 @@ export function TabBar({
       document.body,
     )}
     {splitDrag && contentRef.current && createPortal(
-      <SplitDropOverlay zone={splitDrag.zone} valid={splitDrag.valid} />,
+      <SplitDropOverlay
+        zone={splitDrag.zone}
+        valid={splitDrag.valid}
+        highlight={splitDrag.highlight}
+        windowLevel={splitDrag.windowLevel}
+      />,
       contentRef.current,
     )}
     </>

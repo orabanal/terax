@@ -55,12 +55,14 @@ type Props = {
   onMoveTab: (tabId: number, toIndex: number) => void;
   /** Container of the active tab content, used to detect tab-to-split drops. */
   contentRef: RefObject<HTMLElement | null>;
-  /** Graft a whole tab's panes into another tab's split tree. */
+  /** Graft a whole tab's panes into another tab's split tree. `atLeafId`
+   *  splits that pane; `null` splits the whole window (root graft). */
   onSplitDrop: (
     sourceId: number,
     targetId: number,
     dir: SplitDir,
     before: boolean,
+    atLeafId: number | null,
   ) => void;
   /** Tab-drag preview lifecycle (freezes visible content on the target). */
   onTabDragPreview: (dragging: boolean, targetId: number | null) => void;
