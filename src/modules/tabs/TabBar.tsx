@@ -44,6 +44,7 @@ import { leafIds, type SplitDir } from "@/modules/terminal/lib/panes";
 import {
   canGraftSplit,
   isWorkspaceTree,
+  panesForTargetTab,
   resolveSplitTarget,
   zoneForPoint,
   type SplitDropRect,
@@ -216,10 +217,15 @@ export function TabBar({
       if (!el) return null;
       const contentRect = el.getBoundingClientRect();
       const paneEls = el.querySelectorAll<HTMLElement>("[data-pane-leaf]");
-      const panes = Array.from(paneEls, (paneEl) => {
+      // Tag each pane with its owning tab: hidden tabs stay mounted with
+      // visibility:hidden (rects intact), so scoping to the drop target is
+      // what keeps background panes out of hit-testing.
+      const owned = Array.from(paneEls, (paneEl) => {
         const r = paneEl.getBoundingClientRect();
+        const tabAttr = paneEl.closest("[data-pane-tab]")?.getAttribute("data-pane-tab");
         return {
           leafId: Number(paneEl.dataset.paneLeaf),
+          tabId: tabAttr === null ? null : Number(tabAttr),
           rect: {
             left: r.left,
             top: r.top,
@@ -228,6 +234,7 @@ export function TabBar({
           },
         };
       }).filter((p) => Number.isFinite(p.leafId) && p.rect.width > 0 && p.rect.height > 0);
+      const panes = panesForTargetTab(owned, targetId);
       const full = fullTabsRef.current;
       const source = full.find((t) => t.id === tabId) ?? null;
       const target = full.find((t) => t.id === targetId) ?? null;

@@ -57,6 +57,26 @@ export type SplitPaneHit = {
   rect: SplitDropRect;
 };
 
+/** SplitPaneHit tagged with its owning tab, read from the DOM
+ *  (`data-pane-tab` on the tab wrapper). */
+export type OwnedSplitPaneHit = SplitPaneHit & {
+  /** Owning tab id, or null when the pane sits outside a tab wrapper. */
+  tabId: number | null;
+};
+
+/** Keep only panes owned by the drop-target tab. Hidden tabs stay mounted
+ *  with `visibility: hidden` (which preserves layout and rects), so without
+ *  this filter a background tab's panes win hit-testing and the drop
+ *  silently degrades to a whole-window graft. */
+export function panesForTargetTab(
+  panes: OwnedSplitPaneHit[],
+  targetId: number,
+): SplitPaneHit[] {
+  return panes
+    .filter((p) => p.tabId === targetId)
+    .map(({ leafId, rect }) => ({ leafId, rect }));
+}
+
 export type SplitDropTarget = {
   zone: SplitDropZone;
   /** Leaf to split, or `null` for a window-level (whole tree) split. */

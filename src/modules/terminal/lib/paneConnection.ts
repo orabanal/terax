@@ -1,18 +1,11 @@
 import { useEffect, useReducer, useRef } from "react";
-import { cn } from "@/lib/utils";
-import { localOsId, OsIcon, useDetectedDistro } from "@/modules/os-icon";
 import type { SshHost } from "@/modules/ssh/store";
-import {
-  ComputerTerminal02Icon,
-  ServerStack01Icon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
   getLeafSessionConfig,
   isSessionConnected,
   isSshDisconnected,
   subscribeSshStatus,
-} from "./lib/useTerminalSession";
+} from "./useTerminalSession";
 
 export type PaneConnectionStatus = "up" | "starting" | "down";
 
@@ -24,6 +17,12 @@ export type PaneConnection =
       status: PaneConnectionStatus;
     }
   | { kind: "local"; status: PaneConnectionStatus };
+
+export const CONNECTION_DOT: Record<PaneConnectionStatus, string> = {
+  up: "bg-emerald-500",
+  starting: "bg-amber-500",
+  down: "bg-red-500",
+};
 
 type ConnectionReader = {
   config: (
@@ -71,25 +70,11 @@ const liveReaders: ConnectionReader = {
   sshDisconnected: isSshDisconnected,
 };
 
-const DOT: Record<PaneConnectionStatus, string> = {
-  up: "bg-emerald-500",
-  starting: "bg-amber-500",
-  down: "bg-red-500",
-};
-
-const STATUS_LABEL: Record<PaneConnectionStatus, string> = {
-  up: "connected",
-  starting: "connecting",
-  down: "disconnected",
-};
-
-/** Floating per-pane connection badge (multi-pane tabs only). Read-only and
- *  pointer-transparent so terminal mouse/selection keep working underneath.
- *  Re-renders only when the resolved identity+status actually changes: SSH
- *  status events plus SSH traffic ("terax:ssh-activity") cover connects that
- *  emit no status, and a post-mount reconcile catches a session record the
- *  first render missed. */
-export function PaneConnectionChip({ leafId }: { leafId: number }) {
+/** Live per-leaf connection, re-rendering only when the resolved
+ *  identity+status actually changes: SSH status events plus SSH traffic
+ *  ("terax:ssh-activity") cover connects that emit no status, and a
+ *  post-mount reconcile catches a session record the first render missed. */
+export function usePaneConnection(leafId: number): PaneConnection {
   const [, bump] = useReducer((x: number) => x + 1, 0);
   const conn = describePaneConnection(leafId, liveReaders);
   const renderedSig = useRef("");
@@ -118,48 +103,5 @@ export function PaneConnectionChip({ leafId }: { leafId: number }) {
       window.removeEventListener("terax:ssh-activity", onActivity);
     };
   }, [leafId]);
-
-  return (
-    <div
-      className="pointer-events-none absolute top-1.5 right-1.5 z-20 flex max-w-[45%] items-center gap-1 truncate rounded bg-background/80 py-0.5 pr-1.5 pl-1 text-[10px] text-muted-foreground opacity-80 ring-1 ring-border/40 backdrop-blur-sm"
-      role="status"
-      aria-label={`Connection: ${conn.kind === "ssh" ? conn.name : "Local"}, ${STATUS_LABEL[conn.status]}`}
-    >
-      {conn.kind === "ssh" ? (
-        <SshPaneIcon hostId={conn.hostId} />
-      ) : (
-        <LocalPaneIcon />
-      )}
-      <span className="truncate">
-        {conn.kind === "ssh" ? conn.name : "Local"}
-      </span>
-      <span className={cn("size-1.5 shrink-0 rounded-full", DOT[conn.status])} />
-    </div>
-  );
-}
-
-function SshPaneIcon({ hostId }: { hostId: string }) {
-  const detected = useDetectedDistro(hostId);
-  if (detected) return <OsIcon distroId={detected} />;
-  return (
-    <HugeiconsIcon
-      icon={ServerStack01Icon}
-      size={11}
-      strokeWidth={2}
-      className="shrink-0"
-    />
-  );
-}
-
-function LocalPaneIcon() {
-  const osId = localOsId();
-  if (osId) return <OsIcon distroId={osId} />;
-  return (
-    <HugeiconsIcon
-      icon={ComputerTerminal02Icon}
-      size={11}
-      strokeWidth={2}
-      className="shrink-0"
-    />
-  );
+  return conn;
 }

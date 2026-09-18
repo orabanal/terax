@@ -7,6 +7,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "re
 import { BlockInputBar, type BlockInputBarHandle } from "./block/BlockInputBar";
 import { useTerminalSession } from "./lib/useTerminalSession";
 import { useServerStats } from "./lib/useServerStats";
+import { usePaneConnection } from "./lib/paneConnection";
 import { ServerStatsBar } from "./ServerStatsBar";
 
 export type TerminalPaneHandle = {
@@ -61,10 +62,20 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(
 
     // Track SSH connection state via events instead of polling.
     const [sshConnected, setSshConnected] = useState(() =>
-      sshHost ? isSessionConnected(leafId) : false,
+      isSessionConnected(leafId),
     );
+    // Connection identity for the bar badge: visible in single-pane and
+    // split alike (replaces the old split-only floating chip).
+    const connection = usePaneConnection(leafId);
+
+    // A grafted SSH pane keeps its leaf-level session inside a tab whose
+    // own sshHost belongs to another (or no) connection — the leaf, not
+    // the tab, is the source of truth, or SSH-in-local-tab grafts read
+    // as "Local".
+    const isSshLeaf = !!sshHost || connection.kind === "ssh";
+
     useEffect(() => {
-      if (!sshHost) return;
+      if (!isSshLeaf) return;
 
       // Initial state check
       setSshConnected(isSessionConnected(leafId));
@@ -79,9 +90,9 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(
 
       window.addEventListener("terax:ssh-activity", handleActivity);
       return () => window.removeEventListener("terax:ssh-activity", handleActivity);
-    }, [leafId, sshHost]);
+    }, [leafId, isSshLeaf]);
 
-    const statsEnabled = !!sshHost && showServerStats && sshConnected;
+    const statsEnabled = isSshLeaf && showServerStats && sshConnected;
 
     const stats = useServerStats({
       leafId: statsEnabled ? leafId : null,
@@ -168,7 +179,11 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(
 
     return (
       <div className="zoom-exempt absolute inset-0 flex flex-col" style={hideStyle}>
-        <ServerStatsBar stats={statsEnabled ? stats : null} emptyLabel={barLabel} />
+        <ServerStatsBar
+          stats={statsEnabled ? stats : null}
+          emptyLabel={barLabel}
+          connection={isSshLeaf ? connection : null}
+        />
         <div ref={containerRef} className="min-h-0 flex-1" />
       </div>
     );

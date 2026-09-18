@@ -29,7 +29,6 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { TerminalPane, type TerminalPaneHandle } from "./TerminalPane";
 import { GitDiffPanel, type GitDiffPanelProps } from "./GitDiffPanel";
-import { PaneConnectionChip } from "./PaneConnectionChip";
 import { useTerminalDropStore } from "./lib/dropStore";
 import {
   clearLeaf,
@@ -124,7 +123,6 @@ export function PaneTreeView({
               onExit={(_id, code) => b.onExit(code)}
             />
             <DropOverlay leafId={node.id} />
-            {multiPane && <PaneConnectionChip leafId={node.id} />}
             {showDiff && gitDiffPanel && <GitDiffPanel {...gitDiffPanel} />}
           </div>
         </ContextMenuTrigger>

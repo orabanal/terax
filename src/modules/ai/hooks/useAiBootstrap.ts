@@ -17,9 +17,9 @@ import { useAgentsStore } from "../store/agentsStore";
 import { useChatStore } from "../store/chatStore";
 import { useSnippetsStore } from "../store/snippetsStore";
 
-/** Pick the first available model id from configured providers.
- *  Priority: cloud providers with keys > local providers > custom endpoints. */
-function pickFirstAvailableModel(
+/** All available model ids in priority order:
+ *  cloud providers with keys > local providers > custom endpoints. */
+function listAvailableModels(
   apiKeys: Record<string, string | null>,
   prefs: {
     lmstudioModelIds: string[];
@@ -28,7 +28,8 @@ function pickFirstAvailableModel(
     openrouterModelIds: string[];
     customEndpoints: { id: string; baseURL: string; modelIds: string[] }[];
   },
-): string | null {
+): string[] {
+  const out: string[] = [];
   // Cloud providers: first one with a key
   const cloudOrder: ProviderId[] = [
     "anthropic",
@@ -43,7 +44,7 @@ function pickFirstAvailableModel(
   for (const pid of cloudOrder) {
     if (apiKeys[pid]) {
       const m = MODELS.find((x) => x.provider === pid);
-      if (m) return m.id;
+      if (m) out.push(m.id);
     }
   }
   // Local providers: first one with models configured
@@ -54,20 +55,21 @@ function pickFirstAvailableModel(
     { provider: "openrouter", ids: prefs.openrouterModelIds },
   ];
   for (const { provider, ids } of locals) {
-    if (ids.length > 0) return indexedLocalModelId(provider, 0);
+    if (ids.length > 0) out.push(indexedLocalModelId(provider, 0));
   }
   // Custom endpoints: first one with models
   for (const ep of prefs.customEndpoints) {
     if (ep.baseURL.trim() && ep.modelIds.length > 0)
-      return compatModelIdForEndpoint(ep.id, 0);
+      out.push(compatModelIdForEndpoint(ep.id, 0));
   }
-  return null;
+  return out;
 }
 
 /**
  * Startup wiring for the AI subsystem: loads provider keys (and keeps them in
- * sync), hydrates the preference store, auto-selects the first available
- * model, hydrates chat/agents/snippets stores, and fires any pending review
+ * sync), hydrates the preference store, selects the default model (last
+ * used when still available, else first available), hydrates
+ * chat/agents/snippets stores, and fires any pending review
  * for the active session. Returns the two derived flags the shell needs.
  */
 export function useAiBootstrap(): {
@@ -135,8 +137,10 @@ export function useAiBootstrap(): {
     };
   }, [setApiKeys, setCustomEndpointKeys, prefsHydrated]);
 
-  // Hydrate the cross-window preference store and auto-select the first
-  // available model from configured providers.
+  // Hydrate the cross-window preference store and select the default
+  // model: the last used one when still available, else the first
+  // available from configured providers. Recents-first keeps a mid-session
+  // key change from clobbering the user's pick (the pick itself is recent).
   const initPrefs = usePreferencesStore((s) => s.init);
   useEffect(() => {
     void initPrefs();
@@ -144,7 +148,11 @@ export function useAiBootstrap(): {
   useEffect(() => {
     if (!prefsHydrated) return;
     const state = usePreferencesStore.getState();
-    const modelId = pickFirstAvailableModel(apiKeys, state);
+    const available = listAvailableModels(apiKeys, state);
+    const modelId =
+      state.recentModelIds.find((id) => available.includes(id)) ??
+      available[0] ??
+      null;
     if (modelId) setSelectedModelId(modelId);
   }, [prefsHydrated, apiKeys, setSelectedModelId]);
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describePaneConnection, paneConnectionSignature } from "./PaneConnectionChip";
+import { describePaneConnection, paneConnectionSignature } from "./paneConnection";
 
 const sshConfig = () => ({
   sshHost: { id: "h1", name: "Discador" },

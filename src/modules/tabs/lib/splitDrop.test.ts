@@ -3,6 +3,7 @@ import type { PaneNode } from "@/modules/terminal/lib/panes";
 import {
   canGraftSplit,
   isWorkspaceTree,
+  panesForTargetTab,
   paneStripStyle,
   resolveSplitTarget,
   windowStripStyle,
@@ -106,6 +107,36 @@ describe("drop strip geometry", () => {
     const strip = paneStripStyle({ dir: "row", before: true }, tiny);
     expect(strip.width).toBe(0);
     expect(strip.height).toBe(0);
+  });
+});
+
+describe("panesForTargetTab", () => {
+  const tagged = [
+    { leafId: 1, tabId: 10, rect: { left: 0, top: 0, width: 1000, height: 800 } },
+    { leafId: 2, tabId: 20, rect: { left: 0, top: 0, width: 500, height: 800 } },
+    { leafId: 3, tabId: 20, rect: { left: 500, top: 0, width: 500, height: 800 } },
+    { leafId: 9, tabId: null, rect: { left: 0, top: 0, width: 1000, height: 800 } },
+  ];
+
+  it("keeps only the drop-target tab's panes", () => {
+    expect(panesForTargetTab(tagged, 20)).toEqual([
+      { leafId: 2, rect: { left: 0, top: 0, width: 500, height: 800 } },
+      { leafId: 3, rect: { left: 500, top: 0, width: 500, height: 800 } },
+    ]);
+  });
+
+  it("drops unowned panes and unknown tabs", () => {
+    expect(panesForTargetTab(tagged, 10).map((p) => p.leafId)).toEqual([1]);
+    expect(panesForTargetTab(tagged, 99)).toEqual([]);
+  });
+
+  it("lets the target pane win over a same-rect background pane", () => {
+    // Background tabs stay mounted (visibility:hidden keeps rects), so the
+    // target tab's split panes must resolve pane-level, not whole-window.
+    const content = { left: 0, top: 0, width: 1000, height: 800 };
+    const panes = panesForTargetTab(tagged, 20);
+    const at = resolveSplitTarget(content, panes, 750, 400);
+    expect(at).toMatchObject({ leafId: 3, windowLevel: false });
   });
 });
 
