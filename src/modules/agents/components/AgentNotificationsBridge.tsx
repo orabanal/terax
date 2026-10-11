@@ -1,15 +1,14 @@
 import type { Tab } from "@/modules/tabs";
 import {
   getCwdForLeaf,
+  getLeafSessionConfig,
   hasLeaf,
   leafIdForPty,
   leafIds,
   ptyIdForLeaf,
-  subscribePtyData,
 } from "@/modules/terminal";
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useMemo, useRef } from "react";
-import { PtyClaudeTracker } from "../lib/claudeCliTracker";
 import {
   OpencodeTailBuffer,
   ensureLocalPlugin,
@@ -21,6 +20,7 @@ import {
 } from "../lib/opencodeNotify";
 import { maybeTriggerManagedReview } from "../lib/review";
 import { routeAgentNotification } from "../lib/route";
+import { collectSshLeaves, type SshLeafReaders } from "../lib/sshLeaves";
 import type { AgentSession, AgentSignal } from "../lib/types";
 import { useWindowFocus } from "../lib/useWindowFocus";
 import { useAgentStore } from "../store/agentStore";
@@ -198,17 +198,41 @@ function handleTranscriptEvent(payload: TranscriptPayload, ctx: Ctx): void {
   }
 }
 
-// ─── SSH text-based tracking (ClaudeCliTracker per SSH leaf) ─────────────────
+// ─── SSH text-based tracking (Rust, over the coalesced stream) ───────────────
 
-function sshLeafIds(tabs: Tab[]): { leafId: number; tabId: number }[] {
-  const result: { leafId: number; tabId: number }[] = [];
+type SshAgentStatePayload = {
+  sshId: number;
+  state: string;
+  previousState: string;
+  context?: string | null;
+};
+
+/** Map an SSH session id to its leaf, preferring the active tab — the Rust
+ *  tracker reports per session, and sessions are 1:1 with leaves. */
+function findLeafForSsh(
+  tabs: Tab[],
+  activeId: number,
+  sshId: number,
+): { leafId: number; tabId: number } | null {
+  let fallback: { leafId: number; tabId: number } | null = null;
   for (const t of tabs) {
-    if (t.kind !== "terminal" || !t.sshHostId) continue;
+    if (t.kind !== "terminal") continue;
     for (const lId of leafIds(t.paneTree)) {
-      result.push({ leafId: lId, tabId: t.id });
+      if (ptyIdForLeaf(lId) !== sshId) continue;
+      if (t.id === activeId) return { leafId: lId, tabId: t.id };
+      if (!fallback) fallback = { leafId: lId, tabId: t.id };
     }
   }
-  return result;
+  return fallback;
+}
+
+const liveSshReaders: SshLeafReaders = {
+  hasSshSession: (leafId) =>
+    getLeafSessionConfig(leafId)?.sshHost !== undefined,
+};
+
+function sshLeafIds(tabs: Tab[]): { leafId: number; tabId: number }[] {
+  return collectSshLeaves(tabs, liveSshReaders);
 }
 
 function handleSshStateChange(
@@ -446,76 +470,132 @@ export function AgentNotificationsBridge({
 
   // OpenCode remote setup: ensure the notifier plugin on each SSH host and
   // stream its events file. Idempotent and version-checked; one tail per
-  // SSH session.
+  // SSH session. A periodic rescan (plus SSH-activity nudges) heals three
+  // races the leaf-set key cannot see: setup attempted before the session
+  // connected, tails closed by a transport drop, and failures worth
+  // retrying after a cooldown instead of spamming ssh_exec.
   const remoteSetupRef = useRef(new Set<number>());
+  const setupFailedRef = useRef(new Map<number, number>());
+  const SETUP_RESCAN_MS = 20_000;
+  const SETUP_FAIL_COOLDOWN_MS = 5 * 60_000;
   // biome-ignore lint/correctness/useExhaustiveDependencies: sshLeafKey is the intentional trigger
   useEffect(() => {
-    const sshLeaves = sshLeafIds(tabsRef.current);
-    if (sshLeaves.length === 0 || !opencodeEnabled()) return;
-    const live = new Set<number>();
-    for (const { leafId } of sshLeaves) {
-      const sshId = ptyIdForLeaf(leafId);
-      if (sshId !== null) live.add(sshId);
-    }
-    // Stop tails for sessions that went away.
-    for (const [sshId, tailId] of remoteTailsRef.current) {
-      if (!live.has(sshId)) {
-        remoteTailsRef.current.delete(sshId);
-        tailBufferRef.current.clear(sshId);
-        void stopRemoteTail(tailId);
-      }
-    }
-    for (const sshId of live) {
-      if (remoteTailsRef.current.has(sshId)) continue;
-      if (remoteSetupRef.current.has(sshId)) continue;
-      remoteSetupRef.current.add(sshId);
-      void (async () => {
-        try {
-          const current = await remotePluginCurrent(sshId);
-          if (!current) {
-            const ok = await installRemotePlugin(sshId);
-            if (!ok) return;
-          }
-          const tailId = await startRemoteTail(sshId);
-          if (tailId !== null) remoteTailsRef.current.set(sshId, tailId);
-        } finally {
-          remoteSetupRef.current.delete(sshId);
+    let alive = true;
+
+    const stopStaleTails = (live: Set<number>) => {
+      for (const [sshId, tailId] of remoteTailsRef.current) {
+        if (!live.has(sshId)) {
+          remoteTailsRef.current.delete(sshId);
+          tailBufferRef.current.clear(sshId);
+          void stopRemoteTail(tailId);
         }
-      })();
-    }
-  }, [sshLeafKey]);
+      }
+    };
 
-  useEffect(() => {
-    const sshLeaves = sshLeafIds(tabsRef.current);
-    if (sshLeaves.length === 0) return;
+    const scan = () => {
+      if (!alive) return;
+      if (!opencodeEnabled()) {
+        stopStaleTails(new Set());
+        return;
+      }
+      const live = new Set<number>();
+      for (const { leafId } of sshLeafIds(tabsRef.current)) {
+        const sshId = ptyIdForLeaf(leafId);
+        if (sshId !== null) live.add(sshId);
+      }
+      stopStaleTails(live);
+      for (const sshId of setupFailedRef.current.keys()) {
+        if (!live.has(sshId)) setupFailedRef.current.delete(sshId);
+      }
+      for (const sshId of live) {
+        if (remoteTailsRef.current.has(sshId)) continue;
+        if (remoteSetupRef.current.has(sshId)) continue;
+        const failedAt = setupFailedRef.current.get(sshId) ?? 0;
+        if (Date.now() - failedAt < SETUP_FAIL_COOLDOWN_MS) continue;
+        remoteSetupRef.current.add(sshId);
+        void (async () => {
+          try {
+            const current = await remotePluginCurrent(sshId);
+            if (!current) {
+              const ok = await installRemotePlugin(sshId);
+              if (!ok) {
+                setupFailedRef.current.set(sshId, Date.now());
+                return;
+              }
+            }
+            const tailId = await startRemoteTail(sshId);
+            if (tailId === null) {
+              setupFailedRef.current.set(sshId, Date.now());
+              return;
+            }
+            if (!alive) {
+              // Torn down mid-setup: don't leak the tail.
+              void stopRemoteTail(tailId);
+              return;
+            }
+            remoteTailsRef.current.set(sshId, tailId);
+            setupFailedRef.current.delete(sshId);
+          } finally {
+            remoteSetupRef.current.delete(sshId);
+          }
+        })();
+      }
+    };
 
-    const unsubs: Array<() => void> = [];
-
-    for (const { leafId, tabId } of sshLeaves) {
-      const tracker = new PtyClaudeTracker(({ state, previousState, context }) => {
-        handleSshStateChange(
-          leafId,
-          tabId,
-          state,
-          previousState,
-          ctxRef.current,
-          context,
-        );
-      });
-
-      const unsub = subscribePtyData(leafId, (bytes) =>
-        tracker.processBytes(bytes),
-      );
-      unsubs.push(() => {
-        unsub();
-        tracker.reset();
-      });
-    }
-
+    scan();
+    const timer = setInterval(scan, SETUP_RESCAN_MS);
+    // Nudge the scan when SSH sessions connect or traffic flows: a setup
+    // attempted before connect left nothing behind to retry on.
+    const onActivity = () => scan();
+    window.addEventListener("terax:ssh-activity", onActivity);
     return () => {
-      for (const u of unsubs) u();
+      alive = false;
+      clearInterval(timer);
+      window.removeEventListener("terax:ssh-activity", onActivity);
+      // A4: stop only tails whose session is actually gone — the old code
+      // passed an empty set and restarted EVERY tail (2 ssh_exec per host)
+      // on any SSH tab open/close. In-flight setups are NOT cleared: they
+      // self-guard via `alive` (stopping a tail opened mid-teardown) and
+      // delete their own entry in `finally`, so clearing here could only
+      // spawn duplicates for the same sshId.
+      const live = new Set<number>();
+      for (const { leafId } of sshLeafIds(tabsRef.current)) {
+        const sshId = ptyIdForLeaf(leafId);
+        if (sshId !== null) live.add(sshId);
+      }
+      stopStaleTails(live);
     };
   }, [sshLeafKey]);
+
+  // SSH agent states arrive as transition events from the Rust tracker
+  // (zero per-chunk JS work — the old PtyClaudeTracker is gone). Routing
+  // reuses handleSshStateChange unchanged.
+  useEffect(() => {
+    let alive = true;
+    let unlisten: (() => void) | undefined;
+    listen<SshAgentStatePayload>("terax:ssh-agent-state", (e) => {
+      const ctx = ctxRef.current;
+      const match = findLeafForSsh(ctx.tabs, ctx.activeId, e.payload.sshId);
+      if (!match) return;
+      handleSshStateChange(
+        match.leafId,
+        match.tabId,
+        e.payload.state,
+        e.payload.previousState,
+        ctx,
+        e.payload.context ?? undefined,
+      );
+    })
+      .then((u) => {
+        if (alive) unlisten = u;
+        else u();
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+      unlisten?.();
+    };
+  }, []);
 
   return null;
 }

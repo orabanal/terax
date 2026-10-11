@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 import { defineConfig, type PluginOption } from "vite";
 import Inspect from "vite-plugin-inspect";
+import { configDefaults } from "vitest/config";
 
 const host = process.env.TAURI_DEV_HOST;
 
@@ -123,6 +124,11 @@ export default defineConfig(async ({ mode }) => ({
     },
   },
   clearScreen: false,
+  test: {
+    // Reference repos vendored for review (e.g. ThinkTerm_ref) carry their
+    // own suites — never run them as part of this workspace.
+    exclude: [...configDefaults.exclude, "ThinkTerm_ref/**"],
+  },
   server: {
     port: 1420,
     strictPort: true,

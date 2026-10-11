@@ -104,11 +104,21 @@ export function PaneTreeView({
             }}
             data-pane-leaf={node.id}
             className={cn(
-              "relative h-full w-full transition-[filter] duration-150",
+              "relative h-full w-full",
               showBorder && "ring-1 ring-inset ring-border/60",
             )}
-            style={dimmed ? { filter: "brightness(0.7)" } : undefined}
           >
+            {/* Dim via static overlay, not CSS filter: a filter forces the
+                whole pane (xterm canvases included) through a fullscreen
+                GPU pass on every frame while streaming, and drops text to
+                grayscale AA. The overlay only re-composites. */}
+            <div
+              aria-hidden
+              className={cn(
+                "pointer-events-none absolute inset-0 z-10 bg-black/40 transition-opacity duration-150",
+                dimmed ? "opacity-100" : "opacity-0",
+              )}
+            />
             <TerminalPane
               leafId={node.id}
               visible={tabVisible}

@@ -1,6 +1,6 @@
 import type { SftpEntry } from "./types";
 
-export type SftpSortColumn = "name" | "size" | "mtime" | "permissions";
+export type SftpSortColumn = "name" | "size" | "mtime" | "permissions" | "type";
 export type SftpSortDirection = "asc" | "desc";
 
 export type SftpSortState = {
@@ -18,6 +18,7 @@ const INITIAL_DIRECTION_BY_COLUMN: Record<SftpSortColumn, SftpSortDirection> = {
   size: "desc",
   mtime: "desc",
   permissions: "asc",
+  type: "asc",
 };
 
 export function nextSftpSort(
@@ -63,9 +64,22 @@ function compareByColumn(
     return a.size - b.size;
   }
   if (column === "mtime") return a.mtime - b.mtime;
+  if (column === "type") return compareType(a.name, b.name);
   return (a.mode ?? -1) - (b.mode ?? -1);
 }
 
 function compareNames(a: string, b: string): number {
   return a.localeCompare(b);
+}
+
+/** File extension, lowercase without dot ("" when none). Shared with the
+ *  Type column display so sorting and rendering agree. */
+export function extensionOf(name: string): string {
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0 || dot === name.length - 1) return "";
+  return name.slice(dot + 1).toLowerCase();
+}
+
+function compareType(a: string, b: string): number {
+  return extensionOf(a).localeCompare(extensionOf(b));
 }

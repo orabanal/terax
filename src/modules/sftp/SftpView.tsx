@@ -9,8 +9,14 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import { SftpConflictDialog } from "./components/SftpConflictDialog";
 import { SftpConnection } from "./components/SftpConnection";
 import { SftpDragGhost } from "./components/SftpDragGhost";
-import { SftpSubTabs } from "./components/SftpSubTabs";
+import { SftpHostPicker } from "./components/SftpHostPicker";
+import {
+  SftpSubTabs,
+  type SftpConnStatus,
+  type SftpSubTab,
+} from "./components/SftpSubTabs";
 import { SftpTransferQueue } from "./components/SftpTransferQueue";
+import { bookmarkKeyFor } from "./lib/useSftpBookmarks";
 import { SftpDragContext } from "./lib/SftpDragContext";
 import { useSftpDragDrop } from "./lib/useSftpDragDrop";
 import type { SftpPaneMode } from "./components/SftpPane";
@@ -52,6 +58,17 @@ export function SftpView({
   const [rightActive, setRightActive] = useState(0);
 
   const [focusedSide, setFocusedSide] = useState<"left" | "right">("left");
+
+  // Live connection state per sub-tab, reported up by SftpConnection.
+  const [connStatuses, setConnStatuses] = useState<Record<string, SftpConnStatus>>({});
+  const handleConnStatus = useCallback(
+    (connKey: string, status: SftpConnStatus) => {
+      setConnStatuses((prev) =>
+        prev[connKey] === status ? prev : { ...prev, [connKey]: status },
+      );
+    },
+    [],
+  );
 
   const { context: dragContext, queue } = useSftpDragDrop();
 
@@ -123,15 +140,28 @@ export function SftpView({
   );
 
   const makeSubTabs = useCallback(
-    (conns: Connection[]) =>
-      conns.map((c) => ({
-        id: c.id,
-        label:
-          c.mode === "local"
-            ? "Local"
-            : (hosts.find((h) => h.id === c.hostId)?.name ?? "Remote"),
-      })),
-    [hosts],
+    (conns: Connection[]): SftpSubTab[] =>
+      conns.map((c) => {
+        if (c.mode === "local") {
+          return {
+            id: c.id,
+            label: "Local",
+            mode: c.mode,
+            status: connStatuses[c.id] ?? "loaded",
+          };
+        }
+        const host = hosts.find((h) => h.id === c.hostId);
+        return {
+          id: c.id,
+          label: host?.name ?? "Remote",
+          detail: host
+            ? `${host.username}@${host.host}${host.port !== 22 ? `:${host.port}` : ""}`
+            : undefined,
+          mode: c.mode,
+          status: connStatuses[c.id] ?? "idle",
+        };
+      }),
+    [hosts, connStatuses],
   );
 
   return (
@@ -146,26 +176,32 @@ export function SftpView({
                 onSelect={setLeftActive}
                 onClose={(i) => closeConnection("left", i)}
                 canClose={leftConns.length > 1}
+                actions={
+                  <SftpHostPicker
+                    hosts={hosts}
+                    onSelect={(h) => handleHostSelect("left", h)}
+                    onLocal={() => handleLocal("left")}
+                  />
+                }
               />
               <div className="min-h-0 flex-1">
                 {leftConns.map((conn, i) => (
                   <SftpConnection
                     key={conn.id}
                     connKey={conn.id}
+                    bookmarkKey={bookmarkKeyFor(conn, conn.id)}
                     mode={conn.mode}
                     home={home}
                     visible={i === leftActive}
                     focused={focusedSide === "left"}
                     onFocus={() => setFocusedSide("left")}
                     now={now}
-                    hosts={hosts}
-                    onHostSelect={(h) => handleHostSelect("left", h)}
-                    onLocal={() => handleLocal("left")}
                     connectToHost={getConnectHost(conn)}
                     onOpenFile={onOpenFile}
                     refreshTick={refreshTick}
                     enqueueRemoteEditUpload={queue.enqueueRemoteEditUpload}
                     enqueueDuplicate={queue.enqueueDuplicate}
+                    onStatusChange={handleConnStatus}
                   />
                 ))}
               </div>
@@ -180,26 +216,32 @@ export function SftpView({
                 onSelect={setRightActive}
                 onClose={(i) => closeConnection("right", i)}
                 canClose={rightConns.length > 1}
+                actions={
+                  <SftpHostPicker
+                    hosts={hosts}
+                    onSelect={(h) => handleHostSelect("right", h)}
+                    onLocal={() => handleLocal("right")}
+                  />
+                }
               />
               <div className="min-h-0 flex-1">
                 {rightConns.map((conn, i) => (
                   <SftpConnection
                     key={conn.id}
                     connKey={conn.id}
+                    bookmarkKey={bookmarkKeyFor(conn, conn.id)}
                     mode={conn.mode}
                     home={home}
                     visible={i === rightActive}
                     focused={focusedSide === "right"}
                     onFocus={() => setFocusedSide("right")}
                     now={now}
-                    hosts={hosts}
-                    onHostSelect={(h) => handleHostSelect("right", h)}
-                    onLocal={() => handleLocal("right")}
                     connectToHost={getConnectHost(conn)}
                     onOpenFile={onOpenFile}
                     refreshTick={refreshTick}
                     enqueueRemoteEditUpload={queue.enqueueRemoteEditUpload}
                     enqueueDuplicate={queue.enqueueDuplicate}
+                    onStatusChange={handleConnStatus}
                   />
                 ))}
               </div>

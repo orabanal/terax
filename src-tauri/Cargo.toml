@@ -48,9 +48,8 @@ tokio = { version = "1", default-features = false, features = ["rt", "net", "io-
 tokio-util = { version = "0.7", default-features = false }
 tempfile = "3"
 notify = "8.2.0"
-russh = { version = "0.61", features = ["ring"] }
-russh-keys = "0.45"
-russh-sftp = "2.3"
+russh = { version = "0.63", features = ["ring"] }
+russh-sftp = "2.4"
 shellexpand = "3"
 
 [dev-dependencies]
@@ -63,6 +62,12 @@ libc = "0.2"
 keyring = { version = "3.6", default-features = false, features = [
 	"apple-native",
 ] }
+# OS-level window opacity (NSWindow::setAlphaValue). Versions mirror tauri 2.11.
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+	"std",
+	"NSWindow",
+] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3.6", default-features = false, features = [
@@ -74,6 +79,12 @@ windows-sys = { version = "0.61", features = [
 	"Win32_System_JobObjects",
 	"Win32_System_Threading",
 	"Win32_System_Diagnostics_ToolHelp",
+] }
+# OS-level window opacity (WS_EX_LAYERED + SetLayeredWindowAttributes).
+# Same major version tauri 2.11 uses internally for HWND handling.
+windows = { version = "0.61", features = [
+	"Win32_Foundation",
+	"Win32_UI_WindowsAndMessaging",
 ] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]

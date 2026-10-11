@@ -75,11 +75,59 @@ pub async fn sftp_open(
     let id = state.next_id.fetch_add(1, Ordering::Relaxed);
 
     let handle = ssh::connect_and_auth(&opts).await?;
+    let handle = Arc::new(tokio::sync::Mutex::new(handle));
 
-    let channel = handle
-        .channel_open_session()
-        .await
-        .map_err(|e| format!("Failed to open channel: {e}"))?;
+    let (sftp, home) = open_subsystem(&handle).await?;
+    state.sessions.write().unwrap().insert(
+        id,
+        SftpSessionHandle {
+            sftp: Arc::new(sftp),
+            handle,
+        },
+    );
+
+    Ok(SftpOpenResult { id, home })
+}
+
+/// Open the SFTP subsystem multiplexed on an existing interactive SSH
+/// session (M3): no second TCP connection, handshake or auth. Falls back
+/// to `sftp_open` when there is no live terminal session for the host.
+/// Note the lifetime coupling: closing the terminal session drops the
+/// shared transport, and SFTP surfaces it as a dead session (the existing
+/// reconnect flow already handles exactly that).
+#[tauri::command]
+pub async fn sftp_open_shared(
+    ssh: tauri::State<'_, ssh::SshState>,
+    state: tauri::State<'_, SftpState>,
+    ssh_id: u32,
+) -> Result<SftpOpenResult, String> {
+    let id = state.next_id.fetch_add(1, Ordering::Relaxed);
+
+    let handle = ssh
+        .session_handle(ssh_id)
+        .ok_or_else(|| format!("no ssh session {ssh_id}"))?;
+
+    let (sftp, home) = open_subsystem(&handle).await?;
+    state.sessions.write().unwrap().insert(
+        id,
+        SftpSessionHandle {
+            sftp: Arc::new(sftp),
+            handle,
+        },
+    );
+
+    Ok(SftpOpenResult { id, home })
+}
+
+async fn open_subsystem(
+    handle: &Arc<tokio::sync::Mutex<russh::client::Handle<ssh::ClientHandler>>>,
+) -> Result<(SftpSession, String), String> {
+    let channel = {
+        let h = handle.lock().await;
+        h.channel_open_session()
+            .await
+            .map_err(|e| format!("Failed to open channel: {e}"))?
+    };
 
     channel
         .request_subsystem(true, "sftp")
@@ -95,14 +143,7 @@ pub async fn sftp_open(
         .await
         .map_err(|e| format!("Failed to resolve home directory: {e}"))?;
 
-    let session_handle = SftpSessionHandle {
-        sftp: Arc::new(sftp),
-        handle: Arc::new(tokio::sync::Mutex::new(handle)),
-    };
-
-    state.sessions.write().unwrap().insert(id, session_handle);
-
-    Ok(SftpOpenResult { id, home })
+    Ok((sftp, home))
 }
 
 #[tauri::command]

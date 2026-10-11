@@ -46,16 +46,23 @@ export async function openPty(
     releaseHandlers();
   };
 
-  const id = await invoke<number>("pty_open", {
-    cols,
-    rows,
-    cwd: cwd ?? null,
-    workspace: currentWorkspaceEnv(),
-    blocks: blocks ?? false,
-    command: command ?? null,
-    onData,
-    onExit,
-  });
+  // A6: a rejected invoke must not leak the Channels created above.
+  let id: number;
+  try {
+    id = await invoke<number>("pty_open", {
+      cols,
+      rows,
+      cwd: cwd ?? null,
+      workspace: currentWorkspaceEnv(),
+      blocks: blocks ?? false,
+      command: command ?? null,
+      onData,
+      onExit,
+    });
+  } catch (e) {
+    releaseHandlers();
+    throw e;
+  }
 
   let closed = false;
 
@@ -104,25 +111,33 @@ export async function openSshPty(
   };
   onStatus.onmessage = (msg) => handlers.onStatus?.(msg);
 
-  const id = await invoke<number>("ssh_open", {
-    opts: {
-      host: host.host,
-      port: host.port,
-      username: host.username,
-      authType: host.authType,
-      password: password ?? null,
-      keyPath: host.keyPath ?? null,
-      cols,
-      rows,
-      connectTimeout: host.connectTimeout ?? null,
-      keepAliveInterval: host.keepAliveInterval ?? null,
-      keepAliveMax: host.keepAliveMax ?? null,
-      cwd: cwd ?? null,
-    },
-    onData,
-    onExit,
-    onStatus,
-  });
+  // A6: a rejected invoke must not leak the Channels created above.
+  let id: number;
+  try {
+    id = await invoke<number>("ssh_open", {
+      opts: {
+        host: host.host,
+        port: host.port,
+        username: host.username,
+        authType: host.authType,
+        password: password ?? null,
+        keyPath: host.keyPath ?? null,
+        cols,
+        rows,
+        connectTimeout: host.connectTimeout ?? null,
+        keepAliveInterval: host.keepAliveInterval ?? null,
+        keepAliveMax: host.keepAliveMax ?? null,
+        strictHostKeyChecking: host.strictHostKeyChecking ?? null,
+        cwd: cwd ?? null,
+      },
+      onData,
+      onExit,
+      onStatus,
+    });
+  } catch (e) {
+    releaseHandlers();
+    throw e;
+  }
 
   handlers.onConnected?.(id);
 

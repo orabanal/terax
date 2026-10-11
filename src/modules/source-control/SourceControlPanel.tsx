@@ -31,7 +31,7 @@ import {
   copyToClipboard,
   revealInFinder,
 } from "@/modules/explorer/lib/contextActions";
-import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
+import { fileIconUrl, useIconsVersion } from "@/modules/explorer/lib/iconResolver";
 import {
   COMPACT_CONTENT,
   COMPACT_ITEM,
@@ -936,6 +936,8 @@ const EntryRow = memo(function EntryRow({
 }: RowRendererProps & {
   row: Extract<RowDescriptor, { kind: "entry" }>;
 }) {
+  // Re-render when the deferred icon set arrives (generic → specific).
+  useIconsVersion();
   const entry = row.entry;
   const isSelected = selectedPath === entry.path;
   const fileName = basename(entry.path);

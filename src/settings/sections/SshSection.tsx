@@ -13,6 +13,8 @@ import {
   PencilEdit02Icon,
   PlusSignIcon,
   ServerStack01Icon,
+  ViewIcon,
+  ViewOffSlashIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState } from "react";
@@ -73,6 +75,8 @@ export function SshSection() {
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState<HostForm>(EMPTY_FORM);
   const [hasStoredPassword, setHasStoredPassword] = useState(false);
+  const [storedPassword, setStoredPassword] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     void init();
@@ -83,23 +87,42 @@ export function SshSection() {
     setEditing(null);
     setAdding(true);
     setHasStoredPassword(false);
+    setStoredPassword(null);
+    setShowPassword(false);
   };
 
   const openEdit = (host: SshHost) => {
     setForm(hostToForm(host));
     setEditing(host.id);
     setAdding(false);
+    setShowPassword(false);
     if (host.authType === "password") {
-      getSshPassword(host.id).then((pw) => setHasStoredPassword(!!pw));
+      getSshPassword(host.id).then((pw) => {
+        setHasStoredPassword(!!pw);
+        setStoredPassword(pw);
+      });
     } else {
       setHasStoredPassword(false);
+      setStoredPassword(null);
     }
+  };
+
+  const toggleShowPassword = () => {
+    // Revealing with an empty field loads the stored password into view so
+    // the user can see (and keep) it. Saving afterwards rewrites the same
+    // value, which is a no-op.
+    if (!showPassword && !form.password && storedPassword) {
+      setForm((f) => ({ ...f, password: storedPassword }));
+    }
+    setShowPassword((v) => !v);
   };
 
   const cancel = () => {
     setAdding(false);
     setEditing(null);
     setHasStoredPassword(false);
+    setStoredPassword(null);
+    setShowPassword(false);
   };
 
   const save = async () => {
@@ -135,6 +158,8 @@ export function SshSection() {
     setAdding(false);
     setEditing(null);
     setHasStoredPassword(false);
+    setStoredPassword(null);
+    setShowPassword(false);
   };
 
   const isFormOpen = adding || editing !== null;
@@ -274,15 +299,31 @@ export function SshSection() {
             {form.authType === "password" && (
               <div className="col-span-2 space-y-1">
                 <label htmlFor="ssh-password" className="text-xs text-muted-foreground">Password</label>
-                <Input
-                  id="ssh-password"
-                  type="password"
-                  value={form.password}
-                  onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                  placeholder={hasStoredPassword ? "Leave blank to keep current password" : "Password"}
-                  className="h-8 text-sm"
-                  autoComplete="off"
-                />
+                <div className="relative">
+                  <Input
+                    id="ssh-password"
+                    type={showPassword ? "text" : "password"}
+                    value={form.password}
+                    onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                    placeholder={hasStoredPassword ? "Leave blank to keep current password" : "Password"}
+                    className="h-8 pr-8 text-sm"
+                    autoComplete="off"
+                  />
+                  <button
+                    type="button"
+                    onClick={toggleShowPassword}
+                    tabIndex={-1}
+                    className="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground/60 hover:text-foreground"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    title={showPassword ? "Hide password" : "Show password"}
+                  >
+                    <HugeiconsIcon
+                      icon={showPassword ? ViewOffSlashIcon : ViewIcon}
+                      size={14}
+                      strokeWidth={1.75}
+                    />
+                  </button>
+                </div>
               </div>
             )}
             <div className="col-span-2 space-y-1">

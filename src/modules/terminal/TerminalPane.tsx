@@ -1,9 +1,15 @@
 import { useTheme } from "@/modules/theme";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import { isSessionConnected } from "@/modules/terminal/lib/useTerminalSession";
+import {
+  isSessionConnected,
+  respawnSession,
+  type TerminalOpenError,
+} from "@/modules/terminal/lib/useTerminalSession";
+import { Plug01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import type { SshHost } from "@/modules/ssh/store";
 import type { SearchAddon } from "@xterm/addon-search";
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { BlockInputBar, type BlockInputBarHandle } from "./block/BlockInputBar";
 import { useTerminalSession } from "./lib/useTerminalSession";
 import { useServerStats } from "./lib/useServerStats";
@@ -56,6 +62,24 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(
     const barRef = useRef<BlockInputBarHandle>(null);
     const downYRef = useRef<number | null>(null);
     useTheme();
+
+    // Local PTY opens fail silently (black terminal) — surface the reason
+    // with a retry instead. Cleared optimistically on retry; a repeated
+    // failure re-fires the event.
+    const [openError, setOpenError] = useState<string | null>(null);
+    useEffect(() => {
+      const onOpenFailed = (e: Event) => {
+        const detail = (e as CustomEvent<TerminalOpenError>).detail;
+        if (detail?.leafId === leafId) setOpenError(detail.message);
+      };
+      window.addEventListener("terax:terminal-open-failed", onOpenFailed);
+      return () =>
+        window.removeEventListener("terax:terminal-open-failed", onOpenFailed);
+    }, [leafId]);
+    const retryOpen = useCallback(() => {
+      setOpenError(null);
+      void respawnSession(leafId);
+    }, [leafId]);
 
     const showServerStats = usePreferencesStore((s) => s.showServerStats);
     const serverStatsInterval = usePreferencesStore((s) => s.serverStatsInterval);
@@ -143,6 +167,9 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(
           className="zoom-exempt absolute inset-0 flex flex-col"
           style={hideStyle}
         >
+          {openError && (
+            <OpenErrorOverlay message={openError} onRetry={retryOpen} />
+          )}
           <BlockInputBar
             ref={barRef}
             mode={session.blockMode}
@@ -179,6 +206,9 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(
 
     return (
       <div className="zoom-exempt absolute inset-0 flex flex-col" style={hideStyle}>
+        {openError && (
+          <OpenErrorOverlay message={openError} onRetry={retryOpen} />
+        )}
         <ServerStatsBar
           stats={statsEnabled ? stats : null}
           emptyLabel={barLabel}
@@ -189,3 +219,33 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, Props>(
     );
   },
 );
+
+function OpenErrorOverlay({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-background p-4 text-center">
+      <HugeiconsIcon
+        icon={Plug01Icon}
+        size={24}
+        strokeWidth={1.5}
+        className="text-destructive"
+      />
+      <div className="text-xs font-medium">Terminal failed to start</div>
+      <div className="max-w-md break-all font-mono text-[11px] text-muted-foreground">
+        {message}
+      </div>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="h-7 rounded-md border border-border bg-card px-3 text-xs hover:border-foreground/40"
+      >
+        Retry
+      </button>
+    </div>
+  );
+}

@@ -3,6 +3,7 @@ import { WindowControls } from "@/components/WindowControls";
 import { IS_MAC, USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
 import type { SettingsTab } from "@/modules/settings/openSettingsWindow";
 import { usePreferencesStore } from "@/modules/settings/preferences";
+import { useWindowOpacity } from "@/lib/useWindowOpacity";
 import {
   AiScanIcon,
   CodeCircleIcon,
@@ -31,6 +32,7 @@ import { WebSearchSection } from "./sections/WebSearchSection";
 const TABS: { id: SettingsTab; label: string; icon: typeof Settings01Icon, component: () => JSX.Element }[] =
   [
     { id: "general", label: "General", icon: Settings01Icon, component: GeneralSection },
+    { id: "ssh", label: "SSH", icon: ServerStack01Icon, component: SshSection },
     { id: "themes", label: "Themes", icon: PaintBoardIcon, component: ThemesSection },
     { id: "shortcuts", label: "Shortcuts", icon: KeyboardIcon, component: ShortcutsSection },
     { id: "models", label: "Models", icon: AiScanIcon, component: ModelsSection },
@@ -38,12 +40,12 @@ const TABS: { id: SettingsTab; label: string; icon: typeof Settings01Icon, compo
     { id: "websearch", label: "Web Search", icon: GlobalIcon, component: WebSearchSection },
     { id: "mcp", label: "MCP", icon: CodeCircleIcon, component: McpSection },
     { id: "skills", label: "Skills", icon: AiScanIcon, component: SkillsSection },
-    { id: "ssh", label: "SSH", icon: ServerStack01Icon, component: SshSection },
     { id: "about", label: "About", icon: InformationCircleIcon, component: AboutSection },
   ];
 
 const VALID_TABS: SettingsTab[] = [
   "general",
+  "ssh",
   "themes",
   "shortcuts",
   "models",
@@ -51,7 +53,6 @@ const VALID_TABS: SettingsTab[] = [
   "websearch",
   "mcp",
   "skills",
-  "ssh",
   "about",
 ];
 
@@ -68,6 +69,7 @@ function readInitialTab(): SettingsTab {
 export function SettingsApp() {
   const [active, setActive] = useState<SettingsTab>(readInitialTab);
   const init = usePreferencesStore((s) => s.init);
+  useWindowOpacity();
   const ActiveSection = TABS.find(t => t.id === active)?.component;
 
   useEffect(() => {

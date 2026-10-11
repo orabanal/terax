@@ -23,7 +23,7 @@ import {
   useState,
 } from "react";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import { fileIconUrl } from "./lib/iconResolver";
+import { fileIconUrl, useIconsVersion } from "./lib/iconResolver";
 import { copyToClipboard, revealInFinder } from "./lib/contextActions";
 import { COMPACT_CONTENT, COMPACT_ITEM } from "./lib/menuItemClass";
 import { cn } from "@/lib/utils";
@@ -69,6 +69,8 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(function E
 }: Props,
   ref,
 ) {
+  // Re-render when the deferred icon set arrives (generic → specific).
+  useIconsVersion();
   const showHidden = usePreferencesStore((s) => s.showHidden);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchHit[]>([]);

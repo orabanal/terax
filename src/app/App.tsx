@@ -8,6 +8,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { getLaunchDir } from "@/lib/launchDir";
 import { quoteShellArg } from "@/lib/shellQuote";
 import { useZoom } from "@/lib/useZoom";
+import { useWindowOpacity } from "@/lib/useWindowOpacity";
 import { AgentNotificationsBridge } from "@/modules/agents";
 import {
   AgentRunBridge,
@@ -82,7 +83,16 @@ import { ThemeProvider, useThemeFileEditing } from "@/modules/theme";
 import { UpdaterDialog } from "@/modules/updater";
 import { useWorkspaceEnvStore, currentWorkspaceEnv } from "@/modules/workspace";
 import type { SshHost } from "@/modules/ssh/store";
-import { getSshPassword } from "@/modules/ssh/store";
+import { getSshPassword, useSshHostsStore } from "@/modules/ssh/store";
+import {
+  collectSshHostIds,
+  deserializeTabs,
+  loadSessionsSnapshot,
+  saveSessionsSnapshot,
+  serializeTabs,
+  SESSIONS_VERSION,
+  type ResolvedHost,
+} from "@/modules/tabs/lib/sessions";
 import type { SearchAddon } from "@xterm/addon-search";
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -132,6 +142,7 @@ export default function App() {
     cloneTab,
     moveTab,
     moveTabToSplit,
+    restoreWorkspace,
     resetWorkspace,
   } = useTabs(getLaunchDir() ? { cwd: getLaunchDir() } : undefined);
 
@@ -158,6 +169,7 @@ export default function App() {
   const [gitHistoryHandle, setGitHistoryHandle] =
     useState<GitHistorySearchHandle | null>(null);
   const { zoomIn, zoomOut, zoomReset } = useZoom();
+  useWindowOpacity();
   useTerminalFileDrop();
   const explorerRef = useRef<FileExplorerHandle>(null);
 
@@ -265,6 +277,22 @@ export default function App() {
       }
     }
     return keys;
+  }, [tabs]);
+
+  // AI scope hygiene: closing tabs/panes orphans scope keys (leaf ids are
+  // never reused). Prune them so dead keys neither pin sessions as
+  // "claimed" (which would block connection adoption) nor grow unbounded.
+  // Orphaned sessions themselves stay on disk, recoverable via adoption.
+  useEffect(() => {
+    const liveLeaves = new Set<number>();
+    const liveTabs = new Set<number>();
+    for (const t of tabs) {
+      liveTabs.add(t.id);
+      if (t.kind === "terminal") {
+        for (const id of leafIds(t.paneTree)) liveLeaves.add(id);
+      }
+    }
+    useChatStore.getState().pruneDeadScopes(liveLeaves, liveTabs);
   }, [tabs]);
   const aiBridgeSessionIds = useMemo(() => {
     const validIds = new Set(aiSessions.map((s) => s.id));
@@ -410,17 +438,94 @@ export default function App() {
   // The single SFTP tab is driven by a persisted preference: on toggle we
   // write the pref, and an effect reconciles tab existence with it (so the
   // tab also appears/disappears when the flag is changed from Settings).
+  // It also watches `tabs`: the tab is pinned/toggle-managed, so if any
+  // path drops it while the pref is on (e.g. session restore swapping the
+  // whole tab list, which never contains SFTP), it is re-added instead of
+  // staying invisible until the user flips the toggle twice. ensure/remove
+  // are no-ops when already correct, so this converges without loops.
   const sftpTabVisible = usePreferencesStore((s) => s.sftpTabVisible);
   const sftpPrefHydrated = usePreferencesStore((s) => s.hydrated);
   useEffect(() => {
     if (!sftpPrefHydrated) return;
-    if (sftpTabVisible) ensureSftpTab();
-    else removeSftpTab();
-  }, [sftpPrefHydrated, sftpTabVisible, ensureSftpTab, removeSftpTab]);
+    if (sftpTabVisible) {
+      if (!tabs.some((t) => t.kind === "sftp")) {
+        // Forensic breadcrumb: with the reconcile above this should only
+        // fire when something unexpected removed the tab. Dynamically
+        // imported so the log client never lands in the eager bundle.
+        void import("@tauri-apps/plugin-log")
+          .then((m) =>
+            m.warn("sftp tab missing while Show SFTP is on — re-adding"),
+          )
+          .catch(() => {});
+        ensureSftpTab();
+      }
+    } else removeSftpTab();
+  }, [sftpPrefHydrated, sftpTabVisible, ensureSftpTab, removeSftpTab, tabs]);
 
   const toggleSftpTab = useCallback(() => {
     void setSftpTabVisible(!usePreferencesStore.getState().sftpTabVisible);
   }, []);
+
+  // Session restore (quit → relaunch): frames, dirs and connections come
+  // back; processes respawn fresh. Runs once prefs are hydrated so the
+  // `restoreSessions` toggle is honored; persisting arms only afterwards
+  // so the default single shell never overwrites a real snapshot.
+  const prefsHydrated = usePreferencesStore((s) => s.hydrated);
+  const restoreDoneRef = useRef(false);
+  const persistArmedRef = useRef(false);
+  useEffect(() => {
+    if (!prefsHydrated || restoreDoneRef.current) return;
+    restoreDoneRef.current = true;
+    void (async () => {
+      try {
+        if (!usePreferencesStore.getState().restoreSessions) return;
+        const snap = await loadSessionsSnapshot();
+        if (!snap || snap.tabs.length === 0) return;
+        await useSshHostsStore.getState().init();
+        const hosts = useSshHostsStore.getState().hosts;
+        const byId = new Map(hosts.map((h) => [h.id, h]));
+        const resolved = new Map<string, ResolvedHost>();
+        for (const id of collectSshHostIds(snap.tabs)) {
+          const host = byId.get(id);
+          if (!host) continue;
+          let password: string | undefined;
+          if (host.authType === "password") {
+            password =
+              (await getSshPassword(host.id).catch(() => null)) ?? undefined;
+          }
+          resolved.set(id, { ...host, password });
+        }
+        const built = deserializeTabs(snap, (id) => resolved.get(id));
+        if (built) {
+          restoreWorkspace(built);
+          // Snapshots never contain the toggle-managed SFTP tab, so
+          // re-assert it explicitly — otherwise it stays gone until the
+          // user flips the Settings toggle twice.
+          if (usePreferencesStore.getState().sftpTabVisible) ensureSftpTab();
+          else removeSftpTab();
+        }
+      } finally {
+        persistArmedRef.current = true;
+      }
+    })();
+  }, [prefsHydrated, restoreWorkspace, ensureSftpTab, removeSftpTab]);
+
+  // Persist open tabs (debounced). Skipped until the restore attempt above
+  // settles, and stores only restorable frames (see serializeTabs).
+  useEffect(() => {
+    if (!persistArmedRef.current) return;
+    const timer = setTimeout(() => {
+      void saveSessionsSnapshot({
+        version: SESSIONS_VERSION,
+        tabs: serializeTabs(tabs),
+        activeIndex: Math.max(
+          0,
+          tabs.findIndex((t) => t.id === activeId),
+        ),
+      });
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [tabs, activeId]);
 
   const sendCd = useCallback(
     (path: string) => {

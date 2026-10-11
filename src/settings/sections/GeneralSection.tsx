@@ -21,11 +21,15 @@ import type { ThemePref, TerminalCursorStyle } from "@/modules/settings/store";
 import {
   TERMINAL_FONT_SIZES,
   TERMINAL_SCROLLBACK_PRESETS,
+  WINDOW_OPACITY_MAX,
+  WINDOW_OPACITY_MIN,
+  WINDOW_OPACITY_PRESETS,
   setAgentNotifications,
   setAutostart,
   setEditorAutoSave,
   setEditorAutoSaveDelay,
   setOpencodeNotifications,
+  setRestoreSessions,
   setRestoreWindowState,
   setShowHidden,
   setSftpTabVisible,
@@ -35,9 +39,13 @@ import {
   setTerminalFontSize,
   setTerminalCursorBlink,
   setTerminalCursorStyle,
+  setTerminalCopyOnSelect,
+  setTerminalDynamicTabTitle,
   setTerminalScrollback,
+  setTerminalSmoothScroll,
   setTerminalWebglEnabled,
   setVimMode,
+  setWindowOpacity,
   setZoomLevel,
   setShowServerStats,
   setServerStatsInterval,
@@ -81,6 +89,7 @@ export function GeneralSection() {
 
   const autostart = usePreferencesStore((s) => s.autostart);
   const restoreWindowState = usePreferencesStore((s) => s.restoreWindowState);
+  const restoreSessions = usePreferencesStore((s) => s.restoreSessions);
   const vimMode = usePreferencesStore((s) => s.vimMode);
   const editorAutoSave = usePreferencesStore((s) => s.editorAutoSave);
   const editorAutoSaveDelay = usePreferencesStore((s) => s.editorAutoSaveDelay);
@@ -102,7 +111,17 @@ export function GeneralSection() {
   );
   const terminalFontSize = usePreferencesStore((s) => s.terminalFontSize);
   const terminalScrollback = usePreferencesStore((s) => s.terminalScrollback);
+  const terminalCopyOnSelect = usePreferencesStore(
+    (s) => s.terminalCopyOnSelect,
+  );
+  const terminalDynamicTabTitle = usePreferencesStore(
+    (s) => s.terminalDynamicTabTitle,
+  );
+  const terminalSmoothScroll = usePreferencesStore(
+    (s) => s.terminalSmoothScroll,
+  );
   const zoomLevel = usePreferencesStore((s) => s.zoomLevel);
+  const windowOpacity = usePreferencesStore((s) => s.windowOpacity);
   const agentNotifications = usePreferencesStore((s) => s.agentNotifications);
   const opencodeNotifications = usePreferencesStore(
     (s) => s.opencodeNotifications,
@@ -186,6 +205,48 @@ export function GeneralSection() {
             step={ZOOM_STEP}
             onValueChange={(v) => void setZoomLevel(v[0] ?? 1)}
           />
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label>Window opacity</Label>
+        <div className="flex flex-col gap-3 rounded-lg border border-border/60 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[11.5px] text-muted-foreground">
+              Whole window, including text
+            </span>
+            <span className="tabular-nums text-[11px] text-muted-foreground">
+              {Math.round(windowOpacity * 100)}%
+            </span>
+          </div>
+          <Slider
+            value={[windowOpacity]}
+            min={WINDOW_OPACITY_MIN}
+            max={WINDOW_OPACITY_MAX}
+            step={0.01}
+            onValueChange={(v) => void setWindowOpacity(v[0] ?? 1)}
+          />
+          <div className="flex items-center gap-1.5">
+            {WINDOW_OPACITY_PRESETS.map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => void setWindowOpacity(p)}
+                className={cn(
+                  "h-6 flex-1 rounded-md border text-[11px] tabular-nums transition-all",
+                  Math.abs(windowOpacity - p) < 0.005
+                    ? "border-foreground/60 ring-1 ring-foreground/20"
+                    : "border-border/60 hover:border-border",
+                )}
+              >
+                {Math.round(p * 100)}%
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            At 50% the desktop shows through the whole app. Not supported
+            on Linux — the setting is kept but ignored there.
+          </p>
         </div>
       </div>
 
@@ -384,6 +445,33 @@ export function GeneralSection() {
           </Select>
         </SettingRow>
         <SettingRow
+          title="Smooth scrolling"
+          description="Animate scrollback scrolling instead of jumping between lines."
+        >
+          <Switch
+            checked={terminalSmoothScroll}
+            onCheckedChange={(v) => void setTerminalSmoothScroll(v)}
+          />
+        </SettingRow>
+        <SettingRow
+          title="Dynamic tab titles"
+          description="Rename terminal tabs to the current folder on every directory change. When off, tabs keep their creation name (SSH tabs keep the host name)."
+        >
+          <Switch
+            checked={terminalDynamicTabTitle}
+            onCheckedChange={(v) => void setTerminalDynamicTabTitle(v)}
+          />
+        </SettingRow>
+        <SettingRow
+          title="Copy on select"
+          description="Copy terminal text to the clipboard immediately when you select it, so streaming agent output can't clear the selection before you copy."
+        >
+          <Switch
+            checked={terminalCopyOnSelect}
+            onCheckedChange={(v) => void setTerminalCopyOnSelect(v)}
+          />
+        </SettingRow>
+        <SettingRow
           title="Server stats (SSH)"
           description="Show CPU, memory, disk and network usage in the top bar of SSH terminal tabs. Linux only."
         >
@@ -449,6 +537,15 @@ export function GeneralSection() {
             <Switch
               checked={restoreWindowState}
               onCheckedChange={(v) => void setRestoreWindowState(v)}
+            />
+          </SettingRow>
+          <SettingRow
+            title="Restore previous session"
+            description="Reopen tabs, folders and connections from before quit. Shells restart fresh in the same directories; SSH reconnects automatically."
+          >
+            <Switch
+              checked={restoreSessions}
+              onCheckedChange={(v) => void setRestoreSessions(v)}
             />
           </SettingRow>
         </div>

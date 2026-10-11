@@ -1,3 +1,4 @@
+import { writeText as clipboardWriteText } from "@tauri-apps/plugin-clipboard-manager";
 import type { IMarker, Terminal } from "@xterm/xterm";
 
 const MAX_OSC52_BYTES = 1024 * 1024;
@@ -7,7 +8,9 @@ export function registerOsc52ClipboardHandler(term: Terminal): () => void {
     const text = parseOsc52(data);
     if (text === null) return true;
     queueMicrotask(() => {
-      navigator.clipboard.writeText(text).catch(() => {});
+      clipboardWriteText(text).catch(() =>
+        navigator.clipboard.writeText(text).catch(() => {}),
+      );
     });
     return true;
   });

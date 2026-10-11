@@ -53,7 +53,12 @@ export function StatusBar({
   onToggleComposeBar,
   onSshCwdChange,
 }: Props) {
-  const { summary: gitSummary, sshCwd, loading: gitLoading } = useGitSummary(cwd, leafId, isSSH);
+  const {
+    summary: gitSummary,
+    sshCwd,
+    loading: gitLoading,
+    refresh: refreshGit,
+  } = useGitSummary(cwd, leafId, isSSH);
 
   const onSshCwdChangeRef = useRef(onSshCwdChange);
   onSshCwdChangeRef.current = onSshCwdChange;
@@ -65,18 +70,26 @@ export function StatusBar({
     <footer className="flex h-7 shrink-0 items-center justify-between gap-3 border-t border-border/60 bg-card/60 px-3 text-[10.5px]">
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <WorkspaceEnvSelector onSelect={onWorkspaceChange} />
-        <CwdBreadcrumb cwd={cwd} filePath={filePath} home={home} onCd={onCd} />
+        {/* SSH often lacks OSC-7 cwd (alt-screen TUIs never emit it): fall
+            back to the probed remote cwd so the breadcrumb never reads
+            "no directory" while connected. OSC wins when present. */}
+        <CwdBreadcrumb cwd={cwd ?? (isSSH ? sshCwd : null)} filePath={filePath} home={home} onCd={onCd} />
         {gitSummary && (
           <GitStatusChip
             summary={gitSummary}
             loading={gitLoading}
-            onClick={onGitClick ? () => onGitClick({
-              repoRoot: gitSummary.repoRoot || null,
-              sshCwd,
-              leafId,
-              isSSH,
-              branch: gitSummary.branch,
-            }) : undefined}
+            onClick={onGitClick ? () => {
+              // Manual refresh first (forced past the gates), then open
+              // the diff panel as before.
+              refreshGit();
+              onGitClick({
+                repoRoot: gitSummary.repoRoot || null,
+                sshCwd,
+                leafId,
+                isSSH,
+                branch: gitSummary.branch,
+              });
+            } : undefined}
           />
         )}
         {privateActive ? (

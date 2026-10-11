@@ -5,42 +5,43 @@ import { useRemoteDir } from "../lib/useRemoteDir";
 import { useSftpEdit } from "../lib/useSftpEdit";
 import type { TransferQueue } from "../lib/useTransferQueue";
 import { SftpPane, type SftpPaneMode } from "./SftpPane";
+import type { SftpConnStatus } from "./SftpSubTabs";
 
 type Props = {
   connKey: string;
+  /** Stable bookmark scope for this connection (see bookmarkKeyFor). */
+  bookmarkKey: string;
   mode: SftpPaneMode;
   home: string | null;
   visible: boolean;
   focused: boolean;
   onFocus: () => void;
   now: number;
-  hosts: SshHost[];
-  onHostSelect: (host: SshHost) => void;
-  onLocal: () => void;
   connectToHost?: SshHost | null;
   onOpenFile?: (path: string) => void;
   /** Bumped by SftpView after any transfer completes, to refresh this pane. */
   refreshTick?: number;
   enqueueRemoteEditUpload: TransferQueue["enqueueRemoteEditUpload"];
   enqueueDuplicate: TransferQueue["enqueueDuplicate"];
+  /** Reports connection state up so the sub-tab bar can show a live dot. */
+  onStatusChange?: (connKey: string, status: SftpConnStatus) => void;
 };
 
 export function SftpConnection({
   connKey,
+  bookmarkKey,
   mode,
   home,
   visible,
   focused,
   onFocus,
   now,
-  hosts,
-  onHostSelect,
-  onLocal,
   connectToHost,
   onOpenFile,
   refreshTick,
   enqueueRemoteEditUpload,
   enqueueDuplicate,
+  onStatusChange,
 }: Props) {
   const local = useLocalDir(home);
   const remote = useRemoteDir();
@@ -61,6 +62,10 @@ export function SftpConnection({
     }
   }, [connectToHost, mode, remote]);
 
+  useEffect(() => {
+    onStatusChange?.(connKey, data.status);
+  }, [connKey, data.status, onStatusChange]);
+
   // Refresh after a transfer completes elsewhere. Skip the initial mount
   // (refreshTick starts at 0) so we don't double-load on first render.
   const lastTick = useRef(refreshTick);
@@ -75,6 +80,7 @@ export function SftpConnection({
   return (
     <SftpPane
       connKey={connKey}
+      bookmarkKey={bookmarkKey}
       side={mode === "local" ? "local" : "remote"}
       title={title}
       path={data.path}
@@ -98,9 +104,6 @@ export function SftpConnection({
       showHidden={data.showHidden}
       onToggleHidden={data.toggleHidden}
       mode={mode}
-      hosts={hosts}
-      onHostSelect={onHostSelect}
-      onLocal={onLocal}
       mkdir={data.mkdir}
       createFile={data.createFile}
       rename={data.rename}

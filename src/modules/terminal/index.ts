@@ -5,11 +5,11 @@ export {
   clearFocusedTerminal,
   disposeSession,
   getCwdForLeaf,
+  getLeafSessionConfig,
   leafHasForegroundProcess,
   leafIdForPty,
   ptyIdForLeaf,
   respawnSession,
-  subscribePtyData,
   whenSessionReady,
   writeToSession,
 } from "./lib/useTerminalSession";

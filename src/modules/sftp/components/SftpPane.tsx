@@ -13,7 +13,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { fileIconUrl, folderIconUrl } from "@/modules/explorer/lib/iconResolver";
+import { fileIconUrl, folderIconUrl, useIconsVersion } from "@/modules/explorer/lib/iconResolver";
+import {
+  findTypeaheadMatch,
+  TYPEAHEAD_RESET_MS,
+} from "@/modules/sftp/lib/typeahead";
 import {
   DEFAULT_SFTP_SORT,
   nextSftpSort,
@@ -22,20 +26,18 @@ import {
   type SftpSortState,
 } from "@/modules/sftp/lib/sortEntries";
 import type { ColWidths, DirMutations, SftpEntry, SftpPaneSide, SftpSide, SftpViewMode } from "../lib/types";
-import type { SshHost } from "@/modules/ssh/store";
 import { SftpDragContext } from "../lib/SftpDragContext";
 import { useSftpBookmarks } from "../lib/useSftpBookmarks";
 import { SftpDeleteDialog } from "./SftpDeleteDialog";
 import { SftpEmptyState } from "./SftpEmptyState";
 import { SftpFileRow } from "./SftpFileRow";
-import { SftpHostPicker } from "./SftpHostPicker";
 import { SftpPermissionsDialog } from "./SftpPermissionsDialog";
 import { SftpToolbar } from "./SftpToolbar";
 
-const ROW_HEIGHT = 28;
+const ROW_HEIGHT = 32;
 const OVERSCAN = 8;
 const MARQUEE_THRESHOLD = 4;
-const DEFAULT_COL_WIDTHS: ColWidths = { size: 80, mtime: 112, permissions: 96 };
+const DEFAULT_COL_WIDTHS: ColWidths = { size: 80, mtime: 112, permissions: 96, type: 72 };
 const MIN_COL_WIDTH = 48;
 /** Pixels the cursor must travel before a row press becomes a drag. */
 const DRAG_THRESHOLD = 4;
@@ -73,8 +75,10 @@ type ModalDialogState =
   | { kind: "permissions"; entry: SftpEntry };
 
 type Props = {
-  /** Unique key for scoping bookmarks to this connection. */
+  /** Unique key for this mounted sub-tab (drag registry, focus). */
   connKey: string;
+  /** Stable key scoping bookmarks to the connection itself. */
+  bookmarkKey: string;
   side: SftpSide;
   title: string;
   path: string;
@@ -109,9 +113,6 @@ type Props = {
   openRemoteFileWith?: (sessionId: number, remotePath: string) => Promise<void>;
   /** Opens a local path as a Terax editor tab. */
   onOpenFile?: (path: string) => void;
-  hosts?: SshHost[];
-  onHostSelect?: (host: SshHost) => void;
-  onLocal?: () => void;
   onDuplicate?: (pane: import("../lib/types").SftpPaneRef, entries: SftpEntry[]) => void;
 } & DirMutations;
 
@@ -130,6 +131,7 @@ const COL_VAR: Record<keyof ColWidths, string> = {
   size: "--sftp-col-size",
   mtime: "--sftp-col-mtime",
   permissions: "--sftp-col-permissions",
+  type: "--sftp-col-type",
 };
 
 type ResizeHandleProps = {
@@ -201,7 +203,7 @@ function TreeRow({ node, selected, expanded, loading, onMouseDown, onDoubleClick
       onDoubleClick={onDoubleClick}
       style={{ paddingLeft: `${node.depth * 16 + 8}px` }}
       className={cn(
-        "flex h-7 w-full cursor-default select-none items-center gap-1.5 pr-2 text-xs",
+        "flex h-8 w-full cursor-default select-none items-center gap-1.5 pr-2 text-xs",
         selected ? "bg-accent text-foreground" : "text-foreground/90 hover:bg-accent/50",
       )}
     >
@@ -223,7 +225,7 @@ function TreeRow({ node, selected, expanded, loading, onMouseDown, onDoubleClick
           )
         )}
       </button>
-      <img src={treeIconFor(node.entry)} alt="" className="size-4 shrink-0" />
+      <img src={treeIconFor(node.entry)} alt="" className="size-5 shrink-0" />
       <span className="min-w-0 flex-1 truncate">{node.entry.name}</span>
     </div>
   );
@@ -274,6 +276,7 @@ function SortHeader({
 
 export function SftpPane({
   connKey,
+  bookmarkKey,
   side,
   title,
   path,
@@ -303,9 +306,6 @@ export function SftpPane({
   openRemoteFile,
   openRemoteFileWith,
   onOpenFile,
-  hosts,
-  onHostSelect,
-  onLocal,
   onDuplicate,
   mkdir,
   createFile,
@@ -313,6 +313,8 @@ export function SftpPane({
   remove,
   chmod,
 }: Props) {
+  // Re-render when the deferred icon set arrives (generic → specific).
+  useIconsVersion();
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [anchorIndex, setAnchorIndex] = useState<number | null>(null);
@@ -344,6 +346,7 @@ export function SftpPane({
     el.style.setProperty(COL_VAR.size, `${colWidths.size}px`);
     el.style.setProperty(COL_VAR.mtime, `${colWidths.mtime}px`);
     el.style.setProperty(COL_VAR.permissions, `${colWidths.permissions}px`);
+    el.style.setProperty(COL_VAR.type, `${colWidths.type}px`);
   }, [colWidths]);
 
   // Tree view state
@@ -385,7 +388,7 @@ export function SftpPane({
   }, [drag, makePaneRef, connKey]);
 
   const { bookmarks, toggle: toggleBookmark, remove: removeBookmark, isBookmarked } =
-    useSftpBookmarks(connKey);
+    useSftpBookmarks(bookmarkKey, focused);
 
   useEffect(() => {
     if (!focused) {
@@ -729,6 +732,72 @@ export function SftpPane({
     [selected],
   );
 
+  // Traditional explorer typeahead: printable keys accumulate into a short
+  // buffer (reset after a pause) and jump the selection to the first entry
+  // with a matching prefix. Repeated same-letter presses cycle matches.
+  const typeahead = useRef<{
+    buffer: string;
+    timer: ReturnType<typeof setTimeout> | null;
+  }>({ buffer: "", timer: null });
+
+  useEffect(
+    () => () => {
+      const t = typeahead.current;
+      if (t.timer) clearTimeout(t.timer);
+    },
+    [],
+  );
+
+  const onTypeaheadKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (inlineEdit) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key.length !== 1) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      // Display order for the active view; indices align with `sorted` /
+      // `treeNodes` so selection + scrolling stay consistent. The phantom
+      // "" entry can never match a non-empty buffer.
+      const pool =
+        viewMode === "tree"
+          ? treeNodes.map((n) => n.entry.name)
+          : sorted.map((en) => en.name);
+      if (pool.length === 0) return;
+
+      const t = typeahead.current;
+      if (t.timer) clearTimeout(t.timer);
+      t.buffer += e.key;
+      t.timer = setTimeout(() => {
+        t.buffer = "";
+        t.timer = null;
+      }, TYPEAHEAD_RESET_MS);
+
+      const idx = findTypeaheadMatch(pool, t.buffer, anchorIndex);
+      if (idx === -1) return;
+      const name = pool[idx];
+      if (name === undefined) return;
+      e.preventDefault();
+      setSelected(new Set([name]));
+      setAnchorIndex(idx);
+      if (viewMode === "icons") {
+        scrollRef.current
+          ?.querySelector(`[data-row-name="${CSS.escape(name)}"]`)
+          ?.scrollIntoView({ block: "nearest" });
+      } else {
+        virtualizer.scrollToIndex(idx, { align: "auto" });
+      }
+    },
+    [inlineEdit, sorted, treeNodes, viewMode, anchorIndex, virtualizer],
+  );
+
   const isTextByExt = useCallback((name: string) => {
     const ext = name.split(".").pop()?.toLowerCase() ?? "";
     const textExts = new Set([
@@ -884,13 +953,6 @@ export function SftpPane({
       )}
       onMouseDown={onFocus}
     >
-      {hosts && onHostSelect && onLocal && (
-        <div className="flex h-7 shrink-0 items-center gap-1.5 border-b border-border/60 bg-card px-2">
-          <div className="flex-1" />
-          <SftpHostPicker hosts={hosts} onSelect={onHostSelect} onLocal={onLocal} />
-        </div>
-      )}
-
       {showEmpty ? (
         <SftpEmptyState onConnect={onConnect} status={status === "connecting" ? "connecting" : "idle"} hostName={title} />
       ) : (
@@ -921,9 +983,9 @@ export function SftpPane({
           />
 
           {viewMode === "list" && (
-            <div className="flex h-6 shrink-0 items-center gap-2 overflow-hidden border-b border-border/60 px-2 text-[11px] font-medium text-muted-foreground">
-              {/* 16px spacer matches the file-icon column in rows */}
-              <div className="size-4 shrink-0" />
+            <div className="flex h-7 shrink-0 items-center gap-2 overflow-hidden border-b border-border/60 px-2 text-[11px] font-medium text-muted-foreground">
+              {/* 20px spacer matches the file-icon column in rows */}
+              <div className="size-5 shrink-0" />
               <SortHeader
                 column="name"
                 label="Name"
@@ -931,8 +993,8 @@ export function SftpPane({
                 onSort={(column) => setSort((current) => nextSftpSort(current, column))}
                 className="min-w-0 flex-1"
               />
-              {(["size", "mtime", "permissions"] as const).map((col) => {
-                const labels = { size: "Size", mtime: "Modified", permissions: "Permissions" } as const;
+              {(["type", "size", "mtime", "permissions"] as const).map((col) => {
+                const labels = { type: "Type", size: "Size", mtime: "Modified", permissions: "Permissions" } as const;
                 return (
                   <div
                     key={col}
@@ -961,8 +1023,13 @@ export function SftpPane({
 
           <ContextMenu>
             <ContextMenuTrigger asChild>
+              {/* biome-ignore lint/a11y/useSemanticElements: file list with marquee/drag across 3 view modes; table semantics would be wrong */}
               <div
                 ref={scrollRef}
+                role="grid"
+                tabIndex={0}
+                aria-label="File list. Type to jump to a file."
+                onKeyDown={onTypeaheadKeyDown}
                 onMouseDown={
                   viewMode === "list"
                     ? onListMouseDown
@@ -970,7 +1037,7 @@ export function SftpPane({
                       ? onIconMouseDown
                       : undefined
                 }
-                className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]"
+                className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden outline-none [scrollbar-gutter:stable]"
               >
                 {viewMode === "list" ? (
                   <div
@@ -1257,7 +1324,7 @@ export function SftpPane({
           </ContextMenu>
 
           <div className="flex h-6 shrink-0 items-center justify-between border-t border-border/60 px-2 text-[11px] text-muted-foreground">
-            <span>{sorted.length} items</span>
+            <span>{sorted.filter((e) => e.name !== ".." && e.name !== "").length} items</span>
             <span className="truncate">{path}</span>
           </div>
         </>

@@ -23,6 +23,9 @@ import {
 } from "@/modules/terminal/lib/useTerminalSession";
 import { labelFor } from "./tabLabel";
 import { isWorkspaceTree } from "./splitDrop";
+import { usePreferencesStore } from "@/modules/settings/preferences";
+import { sanitizeSnapshotCwd } from "./sessions";
+import type { RestoredWorkspace } from "./sessions";
 import type { SshHost } from "@/modules/ssh/store";
 
 // Matches the renderer slot pool size — over this we'd evict an active leaf.
@@ -181,7 +184,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
       {
         id: tabId,
         kind: "terminal",
-        title: initial?.title ?? "shell",
+        title: initial?.title ?? "Terminal",
         cwd: initial?.cwd,
         paneTree: { kind: "leaf", id: leafId, cwd: initial?.cwd },
         activeLeafId: leafId,
@@ -204,7 +207,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
       {
         id: tabId,
         kind: "terminal",
-        title: "shell",
+        title: "Terminal",
         cwd,
         paneTree: { kind: "leaf", id: leafId, cwd },
         activeLeafId: leafId,
@@ -760,16 +763,20 @@ export function useTabs(initial?: Partial<TerminalTab>) {
    * keystroke rate. Always-setTabs there cascades a paneTree re-render across
    * every open tab. */
   const setLeafCwd = useCallback((leafId: number, cwd: string) => {
+    // Single choke point for live cwd values: shell-echoed paths sometimes
+    // arrive wrapped in quotes — never let that into state (labels,
+    // breadcrumb, future snapshots). Falls back to raw on empty results.
+    const clean = sanitizeSnapshotCwd(cwd) ?? cwd;
     setTabs((curr) => {
       let changed = false;
       const next = curr.map((t) => {
         if (t.kind !== "terminal" || !hasLeaf(t.paneTree, leafId)) return t;
-        const paneTree = setLeafCwdInTree(t.paneTree, leafId, cwd);
+        const paneTree = setLeafCwdInTree(t.paneTree, leafId, clean);
         const isActive = t.activeLeafId === leafId;
-        const cwdChanged = isActive && t.cwd !== cwd;
+        const cwdChanged = isActive && t.cwd !== clean;
         if (paneTree === t.paneTree && !cwdChanged) return t;
         changed = true;
-        return { ...t, paneTree, ...(cwdChanged && { cwd }) };
+        return { ...t, paneTree, ...(cwdChanged && { cwd: clean }) };
       });
       return changed ? next : curr;
     });
@@ -948,7 +955,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
           id: newTabId,
           kind: "terminal",
           // Keep the source identity (name, icon via sshHostId, privacy) so
-          // "Return to tab" restores the tab as it was, not a bare "shell".
+          // "Return to tab" restores the tab as it was, not a bare "Terminal".
           title: tab.title,
           cwd,
           paneTree: extracted,
@@ -1127,7 +1134,10 @@ export function useTabs(initial?: Partial<TerminalTab>) {
           source.customTitle ??
           (isWorkspaceTree(source.paneTree)
             ? undefined
-            : labelFor(source));
+            : labelFor(source, {
+                dynamic: usePreferencesStore.getState()
+                  .terminalDynamicTabTitle,
+              }));
         const stamped = sourceName
           ? stampOriginTitle(source.paneTree, sourceName)
           : source.paneTree;
@@ -1183,6 +1193,27 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     });
   }, []);
 
+  /** Replace the whole workspace with restored session frames (quit →
+   *  relaunch). Disposes the sessions of the discarded tabs, continues id
+   *  counting above every restored id, and seeds each leaf so its mount
+   *  dials the recorded connection instead of a bare shell. */
+  const restoreWorkspace = useCallback((restored: RestoredWorkspace) => {
+    const doomed = tabsRef.current.flatMap((t) =>
+      t.kind === "terminal" ? leafIds(t.paneTree) : [],
+    );
+    setTabs(restored.tabs);
+    setActiveId(restored.activeId);
+    nextIdRef.current = restored.maxId + 1;
+    for (const s of restored.seeds) {
+      seedLeafSession(s.id, {
+        initialCwd: s.cwd,
+        command: s.command,
+        sshHost: s.sshHost,
+      });
+    }
+    for (const lid of doomed) disposeSession(lid);
+  }, []);
+
   const resetWorkspace = useCallback((cwd?: string) => {
     const tabId = nextIdRef.current++;
     const leafId = nextIdRef.current++;
@@ -1195,7 +1226,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
         {
           id: tabId,
           kind: "terminal",
-          title: "shell",
+          title: "Terminal",
           cwd,
           paneTree: { kind: "leaf", id: leafId, cwd },
           activeLeafId: leafId,
@@ -1240,6 +1271,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     extractLeafToTab,
     moveTab,
     moveTabToSplit,
+    restoreWorkspace,
     resetWorkspace,
   };
 }

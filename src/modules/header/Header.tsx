@@ -221,9 +221,7 @@ export function Header({
           />}
       </div>
 
-      {!IS_MAC && <span className="mx-1 h-5 w-px shrink-0 bg-border" />}
-
-      {IS_MAC && <span className="mr-1 h-full w-px shrink-0 bg-border" />}
+      <span aria-hidden className="h-5 w-px shrink-0 bg-border" />
 
       <div
         className="flex min-w-0 flex-1 items-center gap-2"

@@ -17,8 +17,9 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
 import { cn } from "@/lib/utils";
-import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
+import { fileIconUrl, useIconsVersion } from "@/modules/explorer/lib/iconResolver";
 import { localOsId, OsIcon, useDetectedDistro } from "@/modules/os-icon";
+import { usePreferencesStore } from "@/modules/settings/preferences";
 import { useSshHostsStore, type SshHost } from "@/modules/ssh/store";
 import {
   Cancel01Icon,
@@ -143,6 +144,9 @@ export function TabBar({
   const scrollableTabs = sftpTab
     ? tabs.filter((t) => t.kind !== "sftp")
     : tabs;
+  // Follows the `terminalDynamicTabTitle` preference so tab names freeze
+  // when the user disables directory-following titles.
+  const dynamicTitles = usePreferencesStore((s) => s.terminalDynamicTabTitle);
 
   // --- Drag-and-drop tab reordering (ref-based, no stale closures) ---
   const dragRef = useRef<DragState | null>(null);
@@ -564,21 +568,24 @@ export function TabBar({
       className="flex min-w-0 shrink items-center"
     >
       {sftpTab && (
-        <button
-          type="button"
-          data-tab-id={sftpTab.id}
-          onClick={() => onSelect(sftpTab.id)}
-          className={cn(
-            "group flex h-7 shrink-0 items-center gap-1.5 rounded-md text-xs transition-colors hover:text-foreground/80",
-            sftpTab.id === activeId
-              ? "bg-accent text-foreground"
-              : "text-muted-foreground",
-            compact ? "px-1.5" : "px-2",
-          )}
-        >
-          <TabIcon tab={sftpTab} />
-          <span className="truncate">{labelFor(sftpTab)}</span>
-        </button>
+        <Fragment>
+          <button
+            type="button"
+            data-tab-id={sftpTab.id}
+            onClick={() => onSelect(sftpTab.id)}
+            className={cn(
+              "group flex h-7 shrink-0 items-center gap-1.5 rounded-md text-xs transition-colors hover:text-foreground/80",
+              sftpTab.id === activeId
+                ? "bg-accent text-foreground"
+                : "text-muted-foreground",
+              compact ? "px-1.5" : "px-2",
+            )}
+          >
+            <TabIcon tab={sftpTab} />
+            <span className="truncate">{labelFor(sftpTab)}</span>
+          </button>
+          <span aria-hidden className="mx-2 h-5 w-px shrink-0 bg-border" />
+        </Fragment>
       )}
       <div className="relative min-w-0 shrink">
         {canScrollLeft && (
@@ -657,13 +664,15 @@ export function TabBar({
                     key={t.id}
                     data-tab-id={t.id}
                     className={cn(
-                      "flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent text-xs text-foreground",
+                      // relative (like TabsTrigger): paints above the sliding
+                      // active pill, otherwise the input hides underneath it.
+                      "relative flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent text-xs text-foreground",
                       compact ? "px-1.5" : "px-2",
                     )}
                   >
                     <TabIcon tab={t} workspace={ws} />
                     <TabRenameInput
-                      initial={labelFor(t, { workspace: ws })}
+                      initial={labelFor(t, { workspace: ws, dynamic: dynamicTitles })}
                       onCommit={(value) => {
                         onRename(t.id, value);
                         setEditingId(null);
@@ -724,7 +733,7 @@ export function TabBar({
                     {/* Preview tabs use italic to signal the transient state,
                         matching the visual convention from VSCode. */}
                     <span className={cn("truncate", isPreview && "italic")}>
-                      {labelFor(t, { workspace: ws })}
+                      {labelFor(t, { workspace: ws, dynamic: dynamicTitles })}
                     </span>
                     {t.kind === "editor" && t.dirty ? (
                       <span
@@ -906,7 +915,7 @@ export function TabBar({
         style={{ left: ghostPos.x - 40, top: ghostPos.y - 14 }}
       >
         <TabIcon tab={draggedTab} workspace={draggedTab.kind === "terminal" && isWorkspaceTree(draggedTab.paneTree)} />
-        <span className="truncate">{displayLabel(draggedTab)}</span>
+        <span className="truncate">{displayLabel(draggedTab, dynamicTitles)}</span>
       </div>,
       document.body,
     )}
@@ -924,13 +933,16 @@ export function TabBar({
 }
 
 /** Display label: mixed-connection terminal tabs render as "Workspace". */
-function displayLabel(t: Tab): string {
+function displayLabel(t: Tab, dynamic: boolean): string {
   return labelFor(t, {
     workspace: t.kind === "terminal" && isWorkspaceTree(t.paneTree),
+    dynamic,
   });
 }
 
 function TabIcon({ tab, workspace = false }: { tab: Tab; workspace?: boolean }) {
+  // Re-render when the deferred icon set arrives (generic → specific).
+  useIconsVersion();
   if (tab.kind === "terminal" && workspace) {
     return (
       <HugeiconsIcon

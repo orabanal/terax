@@ -71,6 +71,66 @@ export function pruneActiveByScope(
   return next;
 }
 
+/** Split a terminal scope targetId (`leafId` or `leafId:ssh:hostId`)
+ *  into its stable connection part. Null for non-terminal scopes. */
+export function parseTerminalScope(targetId: string): {
+  leafId: number;
+  sshHostId: string | null;
+} | null {
+  const m = /^(\d+)(?::ssh:(.+))?$/.exec(targetId);
+  if (!m) return null;
+  return { leafId: Number(m[1]), sshHostId: m[2] ?? null };
+}
+
+/** Most recently active session on the same SSH connection (same host),
+ *  if any. Used when a host is reopened with fresh leaf ids: the old
+ *  scope key died with the closed tab, but the conversation belongs to
+ *  the connection and is adopted instead of abandoned. Local scopes
+ *  deliberately have no fallback — a bare leafId carries no stable
+ *  identity, and attaching another directory's chat would be worse than
+ *  starting blank. */
+export function findRecentSessionForConnection(
+  sessions: SessionMeta[],
+  scope: SessionScope,
+): SessionMeta | null {
+  if (scope.type !== "terminal") return null;
+  const parsed = parseTerminalScope(scope.targetId);
+  if (!parsed?.sshHostId) return null;
+  const suffix = `:ssh:${parsed.sshHostId}`;
+  let best: SessionMeta | null = null;
+  for (const s of sessions) {
+    if (s.scope?.type !== "terminal") continue;
+    if (!s.scope.targetId.endsWith(suffix)) continue;
+    if (!best || s.updatedAt > best.updatedAt) best = s;
+  }
+  return best;
+}
+
+/** Drop scope mappings whose leaf/tab no longer exists (closed tabs and
+ *  panes). Dead keys otherwise pin orphan sessions as "claimed" forever,
+ *  blocking connection adoption, and grow the map without bound. */
+export function pruneScopesToLiveKeys(
+  activeByScope: Record<string, string>,
+  liveLeaves: Set<number>,
+  liveTabs: Set<number>,
+): Record<string, string> {
+  const next: Record<string, string> = {};
+  for (const [key, id] of Object.entries(activeByScope)) {
+    const [type, target] = key.split(":", 2);
+    if (type === "terminal") {
+      const parsed = target ? parseTerminalScope(target) : null;
+      if (!parsed || !liveLeaves.has(parsed.leafId)) continue;
+    } else if (type === "workspace") {
+      const tabId = Number(target);
+      if (!Number.isFinite(tabId) || !liveTabs.has(tabId)) continue;
+    } else {
+      continue;
+    }
+    next[key] = id;
+  }
+  return next;
+}
+
 export async function loadAll(): Promise<LoadedSessions> {
   const entries = await store.entries();
   let sessions: SessionMeta[] | undefined;

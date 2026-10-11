@@ -41,6 +41,46 @@ describe("labelFor (terminal tabs)", () => {
   });
 });
 
+describe("labelFor static titles (dynamic: false)", () => {
+  it("keeps the stored title regardless of cwd", () => {
+    const tab = terminalTab({ title: "shell", cwd: "/Users/me/a" });
+    expect(labelFor(tab, { dynamic: false })).toBe("shell");
+    expect(labelFor({ ...tab, cwd: "/Users/me/b/c" }, { dynamic: false })).toBe(
+      "shell",
+    );
+  });
+
+  it("keeps SSH host names instead of remote directories", () => {
+    const tab = terminalTab({
+      title: "prod",
+      sshHostId: "host-1",
+      cwd: "/home/dev/repo",
+    });
+    expect(labelFor(tab, { dynamic: false })).toBe("prod");
+  });
+
+  it("still prefers custom titles and the workspace marker", () => {
+    const renamed = terminalTab({ title: "shell", customTitle: "Server" });
+    expect(labelFor(renamed, { dynamic: false })).toBe("Server");
+    expect(
+      labelFor(terminalTab({ title: "shell" }), {
+        workspace: true,
+        dynamic: false,
+      }),
+    ).toBe("Workspace");
+  });
+
+  it("dynamic: true behaves like the default", () => {
+    const tab = terminalTab({
+      title: "shell",
+      cwd: "/Users/me/projects/terax-ai",
+    });
+    expect(labelFor(tab, { dynamic: true })).toBe(
+      labelFor(tab),
+    );
+  });
+});
+
 describe("labelFor workspace marker", () => {
   it("shows Workspace for mixed-connection tabs without a custom title", () => {
     expect(

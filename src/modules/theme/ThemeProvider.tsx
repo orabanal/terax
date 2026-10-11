@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -24,6 +25,7 @@ import {
   onCustomThemesChange,
 } from "./customThemes";
 import { SurfaceLayer } from "./SurfaceLayer";
+import { applyTheme as applyPoolTheme } from "@/modules/terminal/lib/rendererPool";
 import { getBuiltinTheme, getDefaultTheme } from "./themes";
 import type { Theme } from "./types";
 
@@ -128,7 +130,11 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
   const resolvedMode: "dark" | "light" =
     mode === "system" ? (systemDark ? "dark" : "light") : mode;
 
-  useEffect(() => {
+  // Layout effect (not passive): the .dark/.light class must land before
+  // first paint, otherwise both windows flash light-then-dark on open.
+  // Passive effects run after paint; with today's heavier startup bundle
+  // that gap became visible.
+  useLayoutEffect(() => {
     const root = document.documentElement;
     root.classList.remove("light", "dark");
     root.classList.add(resolvedMode);
@@ -140,8 +146,7 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
       clearTheme();
       lastEditorPairRef.current = null;
       return;
-    }
-    const theme = resolveTheme(themeId, customThemes);
+    }    const theme = resolveTheme(themeId, customThemes);
     applyTheme(theme, resolvedMode);
     const editorPair = theme.editorTheme?.[resolvedMode];
     if (
@@ -152,6 +157,19 @@ export function ThemeProvider({ children, defaultMode = "system" }: ThemeProvide
       lastEditorPairRef.current = editorPair;
       void persistEditorTheme(editorPair as EditorThemeId);
     }
+  }, [themeId, resolvedMode, customThemes]);
+
+  // xterm slots snapshot CSS tokens at creation (and once per panel mount).
+  // Prefs, custom themes and mode all arrive async after first paint, so a
+  // first-paint terminal can keep stale (light) tokens forever — until
+  // another terminal mounts and re-syncs the pool. Re-sync here whenever
+  // the inputs settle: getComputedStyle forces a sync recalc, so this is
+  // safe to run in the same commit right after the vars above land.
+  // Deps are the trigger (re-sync on theme input change), not values used
+  // in the body, hence the suppression below.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: trigger-only deps
+  useEffect(() => {
+    applyPoolTheme();
   }, [themeId, resolvedMode, customThemes]);
 
   const setMode = useCallback((next: ThemePref) => {

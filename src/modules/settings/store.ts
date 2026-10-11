@@ -62,6 +62,8 @@ export type Preferences = {
   customInstructions: string;
   autostart: boolean;
   restoreWindowState: boolean;
+  /** Reopen tabs, folders and connections from before quit on launch. */
+  restoreSessions: boolean;
   autocompleteEnabled: boolean;
   autocompleteProvider: AutocompleteProviderId;
   autocompleteModelId: string;
@@ -91,8 +93,16 @@ export type Preferences = {
   terminalLetterSpacing: number;
   terminalFontSize: number;
   terminalScrollback: number;
+  /** When true, any terminal selection is copied to the clipboard immediately. */
+  terminalCopyOnSelect: boolean;
+  /** Animate scrollback scrolling instead of jumping (xterm smoothScrollDuration). */
+  terminalSmoothScroll: boolean;
+  /** Update terminal tab names to the current folder on every cd. Off keeps creation names. */
+  terminalDynamicTabTitle: boolean;
   lastWslDistro: string | null;
   zoomLevel: number;
+  /** OS-level window opacity (0.5–1.0). Whole window incl. text; Linux degrades to no-op. */
+  windowOpacity: number;
   agentNotifications: boolean;
   opencodeNotifications: boolean;
   shortcuts: Record<ShortcutId, KeyBinding[]>;
@@ -117,6 +127,7 @@ const KEY_EDITOR_THEME = "editorTheme";
 const KEY_CUSTOM_INSTRUCTIONS = "customInstructions";
 const KEY_AUTOSTART = "autostart";
 const KEY_RESTORE_WINDOW = "restoreWindowState";
+const KEY_RESTORE_SESSIONS = "restoreSessions";
 const KEY_AUTOCOMPLETE_ENABLED = "autocompleteEnabled";
 const KEY_AUTOCOMPLETE_PROVIDER = "autocompleteProvider";
 const KEY_AUTOCOMPLETE_MODEL = "autocompleteModelId";
@@ -149,8 +160,12 @@ const KEY_TERMINAL_FONT_FAMILY = "terminalFontFamily";
 const KEY_TERMINAL_LETTER_SPACING = "terminalLetterSpacing";
 const KEY_TERMINAL_FONT_SIZE = "terminalFontSize";
 const KEY_TERMINAL_SCROLLBACK = "terminalScrollback";
+const KEY_TERMINAL_COPY_ON_SELECT = "terminalCopyOnSelect";
+const KEY_TERMINAL_SMOOTH_SCROLL = "terminalSmoothScroll";
+const KEY_TERMINAL_DYNAMIC_TAB_TITLE = "terminalDynamicTabTitle";
 const KEY_LAST_WSL_DISTRO = "lastWslDistro";
 const KEY_ZOOM_LEVEL = "zoomLevel";
+const KEY_WINDOW_OPACITY = "windowOpacity";
 const KEY_AGENT_NOTIFICATIONS = "agentNotifications";
 const KEY_OPENCODE_NOTIFICATIONS = "opencodeNotifications";
 const KEY_SHORTCUTS = "shortcuts";
@@ -189,6 +204,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   customInstructions: "",
   autostart: false,
   restoreWindowState: true,
+  restoreSessions: true,
   autocompleteEnabled: false,
   autocompleteProvider: "cerebras",
   autocompleteModelId: DEFAULT_AUTOCOMPLETE_MODEL.cerebras ?? "",
@@ -216,8 +232,12 @@ export const DEFAULT_PREFERENCES: Preferences = {
   terminalLetterSpacing: 0,
   terminalFontSize: TERMINAL_FONT_SIZE_DEFAULT,
   terminalScrollback: TERMINAL_SCROLLBACK_DEFAULT,
+  terminalCopyOnSelect: true,
+  terminalSmoothScroll: true,
+  terminalDynamicTabTitle: true,
   lastWslDistro: null,
   zoomLevel: 1.0,
+  windowOpacity: 1.0,
   agentNotifications: true,
   opencodeNotifications: true,
   shortcuts: {} as Record<ShortcutId, KeyBinding[]>,
@@ -230,6 +250,17 @@ export const DEFAULT_PREFERENCES: Preferences = {
   showServerStats: true,
   serverStatsInterval: 10,
 };
+
+export const WINDOW_OPACITY_MIN = 0.5;
+export const WINDOW_OPACITY_MAX = 1.0;
+export const WINDOW_OPACITY_DEFAULT = 1.0;
+export const WINDOW_OPACITY_PRESETS = [0.5, 0.7, 0.85, 1.0] as const;
+
+/** clamp(v) = min(1, max(0.5, v)). Non-finite falls back to opaque. */
+export function clampWindowOpacity(v: number): number {
+  if (!Number.isFinite(v)) return WINDOW_OPACITY_DEFAULT;
+  return Math.min(WINDOW_OPACITY_MAX, Math.max(WINDOW_OPACITY_MIN, v));
+}
 
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
 
@@ -313,6 +344,9 @@ export async function loadPreferences(): Promise<Preferences> {
     restoreWindowState:
       get<boolean>(KEY_RESTORE_WINDOW) ??
       DEFAULT_PREFERENCES.restoreWindowState,
+    restoreSessions:
+      get<boolean>(KEY_RESTORE_SESSIONS) ??
+      DEFAULT_PREFERENCES.restoreSessions,
     autocompleteEnabled:
       get<boolean>(KEY_AUTOCOMPLETE_ENABLED) ??
       DEFAULT_PREFERENCES.autocompleteEnabled,
@@ -404,10 +438,22 @@ export async function loadPreferences(): Promise<Preferences> {
       get<number>(KEY_TERMINAL_SCROLLBACK) ??
         DEFAULT_PREFERENCES.terminalScrollback,
     ),
+    terminalCopyOnSelect:
+      get<boolean>(KEY_TERMINAL_COPY_ON_SELECT) ??
+      DEFAULT_PREFERENCES.terminalCopyOnSelect,
+    terminalSmoothScroll:
+      get<boolean>(KEY_TERMINAL_SMOOTH_SCROLL) ??
+      DEFAULT_PREFERENCES.terminalSmoothScroll,
+    terminalDynamicTabTitle:
+      get<boolean>(KEY_TERMINAL_DYNAMIC_TAB_TITLE) ??
+      DEFAULT_PREFERENCES.terminalDynamicTabTitle,
     lastWslDistro:
       get<string | null>(KEY_LAST_WSL_DISTRO) ??
       DEFAULT_PREFERENCES.lastWslDistro,
     zoomLevel: get<number>(KEY_ZOOM_LEVEL) ?? DEFAULT_PREFERENCES.zoomLevel,
+    windowOpacity: clampWindowOpacity(
+      get<number>(KEY_WINDOW_OPACITY) ?? DEFAULT_PREFERENCES.windowOpacity,
+    ),
     agentNotifications:
       get<boolean>(KEY_AGENT_NOTIFICATIONS) ??
       DEFAULT_PREFERENCES.agentNotifications,
@@ -496,6 +542,10 @@ export async function setAutostart(value: boolean): Promise<void> {
 
 export async function setRestoreWindowState(value: boolean): Promise<void> {
   await writePref(KEY_RESTORE_WINDOW, value);
+}
+
+export async function setRestoreSessions(value: boolean): Promise<void> {
+  await writePref(KEY_RESTORE_SESSIONS, value);
 }
 
 export async function setAutocompleteEnabled(value: boolean): Promise<void> {
@@ -630,12 +680,28 @@ export async function setTerminalScrollback(value: number): Promise<void> {
   await writePref(KEY_TERMINAL_SCROLLBACK, clampScrollback(value));
 }
 
+export async function setTerminalCopyOnSelect(value: boolean): Promise<void> {
+  await writePref(KEY_TERMINAL_COPY_ON_SELECT, value);
+}
+
+export async function setTerminalSmoothScroll(value: boolean): Promise<void> {
+  await writePref(KEY_TERMINAL_SMOOTH_SCROLL, value);
+}
+
+export async function setTerminalDynamicTabTitle(value: boolean): Promise<void> {
+  await writePref(KEY_TERMINAL_DYNAMIC_TAB_TITLE, value);
+}
+
 export async function setLastWslDistro(value: string | null): Promise<void> {
   await writePref(KEY_LAST_WSL_DISTRO, value);
 }
 
 export async function setZoomLevel(value: number): Promise<void> {
   await writePref(KEY_ZOOM_LEVEL, value);
+}
+
+export async function setWindowOpacity(value: number): Promise<void> {
+  await writePref(KEY_WINDOW_OPACITY, clampWindowOpacity(value));
 }
 
 function clampAutoSaveDelay(v: number): number {
@@ -716,6 +782,7 @@ export async function onPreferencesChange(
     [KEY_CUSTOM_INSTRUCTIONS]: "customInstructions",
     [KEY_AUTOSTART]: "autostart",
     [KEY_RESTORE_WINDOW]: "restoreWindowState",
+    [KEY_RESTORE_SESSIONS]: "restoreSessions",
     [KEY_AUTOCOMPLETE_ENABLED]: "autocompleteEnabled",
     [KEY_AUTOCOMPLETE_PROVIDER]: "autocompleteProvider",
     [KEY_AUTOCOMPLETE_MODEL]: "autocompleteModelId",
@@ -743,8 +810,12 @@ export async function onPreferencesChange(
     [KEY_TERMINAL_LETTER_SPACING]: "terminalLetterSpacing",
     [KEY_TERMINAL_FONT_SIZE]: "terminalFontSize",
     [KEY_TERMINAL_SCROLLBACK]: "terminalScrollback",
+    [KEY_TERMINAL_COPY_ON_SELECT]: "terminalCopyOnSelect",
+    [KEY_TERMINAL_SMOOTH_SCROLL]: "terminalSmoothScroll",
+    [KEY_TERMINAL_DYNAMIC_TAB_TITLE]: "terminalDynamicTabTitle",
     [KEY_LAST_WSL_DISTRO]: "lastWslDistro",
     [KEY_ZOOM_LEVEL]: "zoomLevel",
+    [KEY_WINDOW_OPACITY]: "windowOpacity",
     [KEY_AGENT_NOTIFICATIONS]: "agentNotifications",
     [KEY_OPENCODE_NOTIFICATIONS]: "opencodeNotifications",
     [KEY_SHORTCUTS]: "shortcuts",

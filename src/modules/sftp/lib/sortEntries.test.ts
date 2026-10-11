@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_SFTP_SORT,
+  extensionOf,
   nextSftpSort,
   sortSftpEntries,
   type SftpSortState,
@@ -71,6 +72,38 @@ describe("sortSftpEntries", () => {
     expect(
       names(sortSftpEntries(tied, { column: "size", direction: "desc" })),
     ).toEqual(["a.txt", "b.txt"]);
+  });
+
+  it("sorts by extension ascending, directories first", () => {
+    const mixed: SftpEntry[] = [
+      { name: "report.pdf", kind: "file", size: 1, mtime: 1 },
+      { name: "data.xlsx", kind: "file", size: 1, mtime: 1 },
+      { name: "src", kind: "dir", size: 0, mtime: 1 },
+      { name: "notes.PDF", kind: "file", size: 1, mtime: 1 },
+      { name: "Makefile", kind: "file", size: 1, mtime: 1 },
+      { name: ".env", kind: "file", size: 1, mtime: 1 },
+    ];
+
+    expect(
+      names(sortSftpEntries(mixed, { column: "type", direction: "asc" })),
+    ).toEqual([
+      "src",
+      ".env",
+      "Makefile",
+      "notes.PDF",
+      "report.pdf",
+      "data.xlsx",
+    ]);
+  });
+});
+
+describe("extensionOf", () => {
+  it("extracts the lowercase extension after the last dot", () => {
+    expect(extensionOf("report.XLSX")).toBe("xlsx");
+    expect(extensionOf("archive.tar.gz")).toBe("gz");
+    expect(extensionOf("Makefile")).toBe("");
+    expect(extensionOf(".env")).toBe("");
+    expect(extensionOf("a.")).toBe("");
   });
 });
 

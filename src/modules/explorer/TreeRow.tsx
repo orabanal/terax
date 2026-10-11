@@ -15,7 +15,7 @@ import {
   relativePath,
   revealInFinder,
 } from "./lib/contextActions";
-import { fileIconUrl, folderIconUrl } from "./lib/iconResolver";
+import { fileIconUrl, folderIconUrl, useIconsVersion } from "./lib/iconResolver";
 import { COMPACT_CONTENT, COMPACT_ITEM } from "./lib/menuItemClass";
 import type { useFileTree } from "./lib/useFileTree";
 
@@ -43,6 +43,8 @@ function isMarkdownPath(path: string): boolean {
 }
 
 function EntryRowImpl(props: EntryRowProps) {
+  // Re-render when the deferred icon set arrives (generic → specific).
+  useIconsVersion();
   const {
     path,
     name,

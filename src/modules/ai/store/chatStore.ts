@@ -16,10 +16,12 @@ import {
   deleteSessionData,
   deriveTitle,
   findActiveForScope,
+  findRecentSessionForConnection,
   loadAll,
   loadMessages,
   newSessionId,
   pruneActiveByScope,
+  pruneScopesToLiveKeys,
   saveActiveByScope,
   saveActiveId,
   saveMessages,
@@ -193,6 +195,9 @@ type StoreState = {
   switchSessionForScope: (scope: SessionScope, id: string) => void;
   getActiveSessionForScope: (scope: SessionScope) => string | null;
   deleteSession: (id: string) => void;
+  /** Drop scope mappings for closed leaves/tabs. Keeps adoption working
+   *  (dead keys would pin sessions as "claimed") and the map bounded. */
+  pruneDeadScopes: (liveLeaves: Set<number>, liveTabs: Set<number>) => void;
   renameSession: (id: string, title: string) => void;
   /** Persist messages of a session and bump its updatedAt + auto-title. */
   persistMessages: (id: string, messages: UIMessage[]) => void;
@@ -496,6 +501,46 @@ export const useChatStore = create<StoreState>((set, get) => ({
       scope,
     );
     if (existing) return existing;
+    // Reopened connection (fresh leaf ids, dead scope key): adopt the most
+    // recent conversation on the same SSH host instead of abandoning it.
+    // Skipped when another scope already claims the candidate — two live
+    // panes on one host must not steal each other's chat.
+    const candidate = findRecentSessionForConnection(get().sessions, scope);
+    if (candidate) {
+      const key = scopeKey(scope);
+      const claimed = Object.entries(get().activeByScope).some(
+        ([k, v]) => v === candidate.id && k !== key,
+      );
+      if (!claimed) {
+        const next = get().sessions.map((s) =>
+          s.id === candidate.id
+            ? { ...s, scope, updatedAt: Date.now() }
+            : s,
+        );
+        const nextActiveByScope: Record<string, string> = {};
+        for (const [k, v] of Object.entries(get().activeByScope)) {
+          // Drop the candidate's dead key (same session, old leaf) so the
+          // mapping stays 1:1 and pruneActiveByScope keeps agreeing.
+          if (v === candidate.id && k !== key) continue;
+          nextActiveByScope[k] = v;
+        }
+        nextActiveByScope[key] = candidate.id;
+        set({
+          sessions: next,
+          activeSessionId: candidate.id,
+          activeByScope: nextActiveByScope,
+          agentMeta: IDLE_META,
+          agentMetaBySession: {
+            ...get().agentMetaBySession,
+            [candidate.id]: IDLE_META,
+          },
+        });
+        void saveSessionsList(next);
+        void saveActiveId(candidate.id);
+        void saveActiveByScope(nextActiveByScope);
+        return candidate.id;
+      }
+    }
     return get().newSession(scope);
   },
 
@@ -527,6 +572,17 @@ export const useChatStore = create<StoreState>((set, get) => ({
 
   getActiveSessionForScope: (scope: SessionScope) => {
     return findActiveForScope(get().sessions, get().activeByScope, scope);
+  },
+
+  pruneDeadScopes: (liveLeaves, liveTabs) => {
+    const next = pruneScopesToLiveKeys(
+      get().activeByScope,
+      liveLeaves,
+      liveTabs,
+    );
+    if (JSON.stringify(next) === JSON.stringify(get().activeByScope)) return;
+    set({ activeByScope: next });
+    void saveActiveByScope(next);
   },
 
   deleteSession: (id) => {

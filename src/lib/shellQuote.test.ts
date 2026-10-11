@@ -22,6 +22,18 @@ describe("quoteShellArg (posix)", () => {
     expect(q("")).toBe("''");
   });
 
+  it("leaves safe paths bare (no apostrophes)", () => {
+    expect(q("/ruta/rutab")).toBe("/ruta/rutab");
+    expect(q("C:/Users/dev")).toBe("C:/Users/dev");
+    expect(q("~/docs")).toBe("~/docs");
+    expect(q("a-b_c.d:e@f+g%h,i~j")).toBe("a-b_c.d:e@f+g%h,i~j");
+  });
+
+  it("quotes leading dashes so they never parse as flags", () => {
+    expect(q("-foo")).toBe("'-foo'");
+    expect(q("-")).toBe("'-'");
+  });
+
   it("cannot break out of the quoted argument", () => {
     expect(q("'; rm -rf /; '")).toBe("''\\''; rm -rf /; '\\'''");
   });
@@ -44,5 +56,12 @@ describe("quoteShellArg (windows/pwsh)", () => {
 
   it("quotes an empty string", () => {
     expect(q("")).toBe("''");
+  });
+
+  it("leaves safe paths bare, except a leading @ (splat)", () => {
+    expect(q("/ruta/rutab")).toBe("/ruta/rutab");
+    expect(q("C:/Users/dev")).toBe("C:/Users/dev");
+    expect(q("@host")).toBe("'@host'");
+    expect(q("-foo")).toBe("'-foo'");
   });
 });

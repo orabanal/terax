@@ -1,9 +1,10 @@
 import { cn } from "@/lib/utils";
-import { fileIconUrl, folderIconUrl } from "@/modules/explorer/lib/iconResolver";
+import { fileIconUrl, folderIconUrl, useIconsVersion } from "@/modules/explorer/lib/iconResolver";
 import { Link01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { formatMtime, formatPermissions, formatSize } from "../lib/format";
+import { extensionOf } from "../lib/sortEntries";
 import type { ColWidths, SftpEntry, SftpViewMode } from "../lib/types";
 
 type Props = {
@@ -109,6 +110,8 @@ export const SftpFileRow = memo(function SftpFileRow({
   onCancelEdit,
   viewMode = "list",
 }: Props) {
+  // Re-render when the deferred icon set arrives (generic → specific).
+  useIconsVersion();
   if (viewMode === "icons") {
     return (
       <div
@@ -150,13 +153,13 @@ export const SftpFileRow = memo(function SftpFileRow({
       onMouseDown={editing ? undefined : onMouseDown}
       onDoubleClick={editing ? undefined : onDoubleClick}
       className={cn(
-        "flex h-7 w-full min-w-0 cursor-default select-none items-center gap-2 px-2 text-xs",
+        "flex h-8 w-full min-w-0 cursor-default select-none items-center gap-2 px-2 text-xs",
         selected
           ? "bg-accent text-foreground"
           : "text-foreground/90 hover:bg-accent/50",
       )}
     >
-      <img src={iconFor(entry)} alt="" className="size-4 shrink-0" />
+      <img src={iconFor(entry)} alt="" className="size-5 shrink-0" />
       {editing ? (
         <InlineEdit
           initialValue={entry.name}
@@ -176,6 +179,14 @@ export const SftpFileRow = memo(function SftpFileRow({
           )}
         </span>
       )}
+      <span
+        className="shrink-0 truncate text-muted-foreground"
+        style={{ width: "var(--sftp-col-type, 72px)" }}
+      >
+        {entry.kind === "dir" || !extensionOf(entry.name)
+          ? "—"
+          : extensionOf(entry.name).toUpperCase()}
+      </span>
       <span
         className="shrink-0 text-right tabular-nums text-muted-foreground"
         style={{ width: "var(--sftp-col-size, 80px)" }}

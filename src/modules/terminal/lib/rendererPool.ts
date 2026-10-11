@@ -3,7 +3,10 @@ import { detectMonoFontFamily, MONO_FALLBACK_CHAIN } from "@/lib/fonts";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { buildTerminalTheme } from "@/styles/terminalTheme";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { readText as clipboardReadText } from "@tauri-apps/plugin-clipboard-manager";
+import {
+  readText as clipboardReadText,
+  writeText as clipboardWriteText,
+} from "@tauri-apps/plugin-clipboard-manager";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
@@ -21,6 +24,11 @@ export const POOL_MAX_SIZE = 12;
 const FIT_DEBOUNCE_MS = 8;
 const PTY_RESIZE_DEBOUNCE_MS = 256;
 const SNAPSHOT_SCROLLBACK_CAP = 5_000;
+/** Scroll animation length for smooth scrollback (xterm smoothScrollDuration). */
+const SMOOTH_SCROLL_MS = 150;
+// Trailing delay for keyboard-driven copy-on-select (see createSlot).
+// Short enough to feel instant, long enough to coalesce a shift+arrows run.
+const COPY_SELECTION_SETTLE_MS = 120;
 
 export type SlotAdapter = {
   resolveLeaf(leafId: number): LeafBridge | null;
@@ -149,12 +157,40 @@ export function pasteClipboardToLeaf(leafId: number): void {
     .catch(() => {});
 }
 
+/**
+ * Reliable clipboard write: the Tauri plugin never shows a permission popup
+ * and works even when the WebView is unfocused, unlike
+ * `navigator.clipboard` which rejects intermittently (the classic "sometimes
+ * it copies, sometimes it doesn't"). Falls back to the Web API when the
+ * plugin is unavailable (e.g. browser dev preview).
+ */
+function writeClipboardText(text: string): Promise<void> {
+  return clipboardWriteText(text).catch(() =>
+    navigator.clipboard.writeText(text).catch(() => {}),
+  );
+}
+
+/**
+ * Serialized clipboard queue. `onSelectionChange` fires on every mouse-move
+ * tick of a drag and each `writeText` resolves asynchronously, so naive
+ * fire-and-forget writes can resolve out of order and leave a stale partial
+ * selection in the clipboard. Chaining guarantees the latest selection wins.
+ */
+let copyChain: Promise<void> = Promise.resolve();
+let lastQueuedCopy = "";
+
+function enqueueCopy(text: string): void {
+  if (!text || text === lastQueuedCopy) return;
+  lastQueuedCopy = text;
+  copyChain = copyChain.then(() => writeClipboardText(text)).catch(() => {});
+}
+
 export function copyFromLeaf(leafId: number): boolean {
   const slot = slots.find((s) => s.currentLeafId === leafId);
   if (!slot) return false;
   const sel = slot.term.getSelection();
   if (!sel) return false;
-  void navigator.clipboard.writeText(sel).catch(() => {});
+  enqueueCopy(sel);
   return true;
 }
 
@@ -230,6 +266,7 @@ function termOptions() {
     cursorStyle: cursorStyleValue,
     cursorInactiveStyle: "outline" as const,
     scrollback: prefs.terminalScrollback,
+    smoothScrollDuration: prefs.terminalSmoothScroll ? SMOOTH_SCROLL_MS : 0,
     allowProposedApi: true,
     minimumContrastRatio: bgActive(prefs) ? MCR_BG_ACTIVE : MCR_BG_INACTIVE,
   };
@@ -267,6 +304,46 @@ function createSlot(): Slot {
   host.setAttribute("data-terax-slot", String(slots.length));
   getRecycler().appendChild(host);
   term.open(host);
+
+  // Select-to-copy, gated by the terminalCopyOnSelect pref (read live so
+  // toggling needs no slot rebind). Two complementary paths:
+  //
+  // 1. mouseup on the slot host: the deterministic path. Fires once per
+  //    mouse gesture with the final selection, read synchronously before
+  //    streaming agent output (opencode, Claude Code) can clear the
+  //    highlight. This alone fixes the "sometimes it copies" reports.
+  // 2. onSelectionChange with a short trailing debounce: covers
+  //    keyboard-driven selections (shift+arrows, select-all, block click)
+  //    that never produce a mouseup. A clear event never cancels a pending
+  //    flush — if the agent wipes the highlight 50ms after the user
+  //    selects, the captured text is still written.
+  let settleTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingSelection: string | null = null;
+  const flushSettled = () => {
+    settleTimer = null;
+    const text = pendingSelection;
+    pendingSelection = null;
+    if (text) enqueueCopy(text);
+  };
+  term.onSelectionChange(() => {
+    try {
+      if (!usePreferencesStore.getState().terminalCopyOnSelect) return;
+      if (!term.hasSelection()) return;
+      const sel = term.getSelection();
+      if (!sel) return;
+      pendingSelection = sel;
+      if (settleTimer) clearTimeout(settleTimer);
+      settleTimer = setTimeout(flushSettled, COPY_SELECTION_SETTLE_MS);
+    } catch {}
+  });
+  host.addEventListener("mouseup", () => {
+    try {
+      if (!usePreferencesStore.getState().terminalCopyOnSelect) return;
+      if (!term.hasSelection()) return;
+      const sel = term.getSelection();
+      if (sel) enqueueCopy(sel);
+    } catch {}
+  });
 
   // xterm.js WebGL renderer bug: glyphs rasterized in the constructor look
   // different from dynamically-set ones. A fontWeight round-trip after the
@@ -344,7 +421,7 @@ function createSlot(): Slot {
     if (isTerminalCopy(event)) {
       if (event.type === "keydown" && slot.term.hasSelection()) {
         const sel = slot.term.getSelection();
-        if (sel) void navigator.clipboard.writeText(sel).catch(() => {});
+        if (sel) enqueueCopy(sel);
       }
       event.preventDefault();
       return false;
@@ -955,6 +1032,14 @@ export function applyScrollback(value: number): void {
   for (const slot of slots) {
     if (slot.term.options.scrollback === value) continue;
     slot.term.options.scrollback = value;
+  }
+}
+
+export function applySmoothScroll(enabled: boolean): void {
+  const value = enabled ? SMOOTH_SCROLL_MS : 0;
+  for (const slot of slots) {
+    if (slot.term.options.smoothScrollDuration === value) continue;
+    slot.term.options.smoothScrollDuration = value;
   }
 }
 

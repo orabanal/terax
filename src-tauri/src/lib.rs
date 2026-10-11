@@ -1,6 +1,9 @@
 pub mod modules;
 
-use modules::{agent, fs, git, net, opencode_notify, pty, secrets, shell, sftp, ssh, transcript_watcher, workspace};
+use modules::{
+    agent, fs, git, net, opencode_notify, pty, secrets, shell, sftp, ssh, transcript_watcher,
+    window_opacity, workspace,
+};
 use std::sync::Mutex;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 #[cfg(target_os = "macos")]
@@ -40,7 +43,7 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
     };
 
     if let Some(window) = app.get_webview_window("settings") {
-        let _ = window.set_always_on_top(true);
+        let _ = window.set_always_on_top(false);
         let _ = window.show();
         let _ = window.set_focus();
         if let Some(t) = tab.as_deref().filter(|s| !s.is_empty()) {
@@ -56,14 +59,19 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
         .inner_size(900.0, 700.0)
         .min_inner_size(820.0, 620.0)
         .resizable(true)
+        // Dark native backdrop (#18181b, app background): the window shows
+        // before React's first paint, and a white default would flash.
+        // Matches the main window's backgroundColor in tauri.conf.json.
+        .background_color(tauri::window::Color(24, 24, 27, 255))
         .visible(false)
-        // Keep settings above the main app window so it doesn't get hidden
-        // when the user clicks back into the editor or terminal (#33).
-        .always_on_top(true);
+        // Normal window: never always-on-top, so it doesn't float above
+        // every other app on the system. On Linux/Windows the parent()
+        // link below keeps it above Terax's own main window.
+        .always_on_top(false);
 
     // Tie lifecycle to the main window so settings minimizes/closes with it.
-    // macOS: skip parent() — child + always_on_top leaves the settings webview
-    // behind the main window except while the parent is being dragged (#33).
+    // macOS: skip parent() so Settings behaves like a regular window that
+    // can go behind the main window and other apps.
     #[cfg(not(target_os = "macos"))]
     let builder = if let Some(main) = app.get_webview_window("main") {
         builder.parent(&main).map_err(|e| e.to_string())?
@@ -133,7 +141,18 @@ pub fn run() {
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(tauri_plugin_log::log::LevelFilter::Info)
-                .level_for("russh", tauri_plugin_log::log::LevelFilter::Debug)
+                // russh at DEBUG logs every SSH packet (dozens/sec while an
+                // agent streams) — format + stdout/file IO per packet costs
+                // real CPU and floods the log file. Re-enable per-session
+                // with TERAX_SSH_DEBUG=1 (restart required, no rebuild).
+                .level_for(
+                    "russh",
+                    if std::env::var("TERAX_SSH_DEBUG").is_ok() {
+                        tauri_plugin_log::log::LevelFilter::Debug
+                    } else {
+                        tauri_plugin_log::log::LevelFilter::Info
+                    },
+                )
                 .build(),
         )
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -239,6 +258,7 @@ pub fn run() {
             workspace::workspace_current_dir,
             get_launch_dir,
             open_settings_window,
+            window_opacity::set_window_opacity,
             opencode_notify::opencode_notify_plugin_source,
             opencode_notify::opencode_notify_local_status,
             opencode_notify::opencode_notify_install_local,
@@ -259,6 +279,7 @@ pub fn run() {
             ssh::ssh_tail_start,
             ssh::ssh_tail_stop,
             sftp::sftp_open,
+            sftp::sftp_open_shared,
             sftp::sftp_list_dir,
             sftp::sftp_close,
             sftp::sftp_mkdir,

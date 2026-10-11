@@ -1,5 +1,7 @@
-import { invoke } from "@tauri-apps/api/core";
+import { scheduleSshExec } from "@/modules/ssh/sshExecScheduler";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { nextPollInterval } from "@/lib/pollBackoff";
+import { useWindowActive } from "@/lib/useWindowActive";
 import { ptyIdForLeaf } from "@/modules/terminal/lib/useTerminalSession";
 
 export type TopProc = {
@@ -44,12 +46,6 @@ export type ServerStats = {
   netTxSpeed: number;
   /** Per-interface speeds, loopback excluded. */
   ifaces: NetIfaceStat[];
-};
-
-type SshExecResult = {
-  stdout: string;
-  stderr: string;
-  exitCode: number | null;
 };
 
 // Reads CPU (two samples 300ms apart), memory, disks, and network speed
@@ -347,10 +343,13 @@ const CONSECUTIVE_FAILURE_LIMIT = 3;
 const FETCH_TIMEOUT_MS = 8_000;
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), ms)),
-  ]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, rej) => {
+    timer = setTimeout(() => rej(new Error("timeout")), ms);
+  });
+  // A3: the loser of the race must not leave its timer armed — a hung
+  // server would otherwise pile one live timer per abandoned probe.
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
 }
 
 type Options = {
@@ -363,20 +362,35 @@ type Options = {
 export function useServerStats({ leafId, enabled, intervalSec, visible }: Options): ServerStats {
   const [stats, setStats] = useState<ServerStats>(NULL_STATS);
   const failuresRef = useRef(0);
-  const givenUpRef = useRef(false);
+  // M1: sustained failures back off instead of giving up forever. A CPU
+  // spike from the agent used to freeze stats until a tab switch; now the
+  // chain survives and retries after a cooldown.
+  const cooldownUntilRef = useRef(0);
+  const STATS_COOLDOWN_MS = 60_000;
   const mountedRef = useRef(true);
   const genRef = useRef(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Unfocused window: pause polling entirely (no ssh_exec while the user
+  // is in another app). Kept in a ref so focus flips don't recreate `fetch`
+  // and churn the polling effect below.
+  const windowActive = useWindowActive();
+  const windowActiveRef = useRef(windowActive);
+  windowActiveRef.current = windowActive;
+  // Set while paused so the resume fetch fires immediately instead of
+  // waiting out the initial settle delay.
+  const pausedRef = useRef(false);
+
   const fetch = useCallback(async () => {
-    if (!enabled || !visible || leafId === null || givenUpRef.current) return;
+    if (!enabled || !visible || !windowActiveRef.current || leafId === null) return;
+    if (Date.now() < cooldownUntilRef.current) return;
     const sshId = ptyIdForLeaf(leafId);
     if (sshId === null) return;
 
     const gen = ++genRef.current;
     try {
       const result = await withTimeout(
-        invoke<SshExecResult>("ssh_exec", { id: sshId, command: STATS_SCRIPT }),
+        scheduleSshExec(sshId, STATS_SCRIPT),
         FETCH_TIMEOUT_MS,
       );
       if (!mountedRef.current || gen !== genRef.current) return;
@@ -384,25 +398,38 @@ export function useServerStats({ leafId, enabled, intervalSec, visible }: Option
         throw new Error("no output");
       }
       failuresRef.current = 0;
+      cooldownUntilRef.current = 0;
       setStats(parseOutput(result.stdout));
     } catch {
       if (!mountedRef.current || gen !== genRef.current) return;
       failuresRef.current += 1;
       if (failuresRef.current >= CONSECUTIVE_FAILURE_LIMIT) {
-        givenUpRef.current = true;
-        if (intervalRef.current) {
-          clearInterval(intervalRef.current);
-          intervalRef.current = null;
-        }
+        failuresRef.current = 0;
+        cooldownUntilRef.current = Date.now() + STATS_COOLDOWN_MS;
       }
     }
   }, [leafId, enabled, visible]);
 
+  // Idle backoff bookkeeping: SSH output timestamps per leaf. Quiet but
+  // visible panes stretch their poll cadence instead of execing on schedule.
+  const lastActivityRef = useRef(0);
+
   // Reset on leafId change (new connection)
   useEffect(() => {
     failuresRef.current = 0;
-    givenUpRef.current = false;
+    cooldownUntilRef.current = 0;
+    lastActivityRef.current = 0;
     setStats(NULL_STATS);
+  }, [leafId]);
+
+  useEffect(() => {
+    if (leafId === null) return;
+    const onActivity = (e: Event) => {
+      const detail = (e as CustomEvent<{ leafId: number }>).detail;
+      if (detail?.leafId === leafId) lastActivityRef.current = Date.now();
+    };
+    window.addEventListener("terax:ssh-activity", onActivity);
+    return () => window.removeEventListener("terax:ssh-activity", onActivity);
   }, [leafId]);
 
   useEffect(() => {
@@ -412,19 +439,48 @@ export function useServerStats({ leafId, enabled, intervalSec, visible }: Option
       intervalRef.current = null;
     }
 
-    if (!enabled || !visible || leafId === null) {
+    if (!enabled || leafId === null) {
       setStats(NULL_STATS);
       return () => {
         mountedRef.current = false;
       };
     }
-
-    // Initial fetch after short delay to let SSH settle
-    const initial = setTimeout(() => void fetch(), 1_500);
-    if (!givenUpRef.current) {
-      const ms = Math.max(5, intervalSec) * 1000;
-      intervalRef.current = setInterval(() => void fetch(), ms);
+    if (!visible || !windowActive) {
+      // Paused (hidden tab or unfocused window): keep last-known stats and
+      // stop polling. A fresh fetch runs immediately on resume.
+      pausedRef.current = true;
+      return () => {
+        mountedRef.current = false;
+      };
     }
+
+    // Idle-aware chain (ThinkTerm-style backoff): each tick reschedules
+    // from current quiet time instead of a fixed interval. Same start-based
+    // cadence as setInterval when fresh; failure cooldowns stretch the
+    // wait via scheduleNext (the chain itself never dies).
+    const baseMs = Math.max(5, intervalSec) * 1000;
+    const scheduleNext = () => {
+      const cooldownWait = Math.max(0, cooldownUntilRef.current - Date.now());
+      const wait = Math.max(
+        cooldownWait,
+        nextPollInterval({ baseMs, now: Date.now(), lastActivityAt: lastActivityRef.current }),
+      );
+      intervalRef.current = setTimeout(() => {
+        intervalRef.current = null;
+        void fetch();
+        scheduleNext();
+      }, wait);
+    };
+
+    // First mount waits for SSH to settle; resume-after-pause refetches now.
+    const initial = setTimeout(
+      () => {
+        void fetch();
+        scheduleNext();
+      },
+      pausedRef.current ? 0 : 1_500,
+    );
+    pausedRef.current = false;
 
     return () => {
       mountedRef.current = false;
@@ -434,7 +490,7 @@ export function useServerStats({ leafId, enabled, intervalSec, visible }: Option
         intervalRef.current = null;
       }
     };
-  }, [enabled, visible, leafId, intervalSec, fetch]);
+  }, [enabled, visible, windowActive, leafId, intervalSec, fetch]);
 
   return stats;
 }

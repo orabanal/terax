@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getSshPassword, type SshHost } from "@/modules/ssh/store";
+import { findLiveSshSessionForHost } from "@/modules/terminal/lib/useTerminalSession";
 import type { DirMutations, SftpEntry } from "./types";
 
 type SftpDirEntry = {
@@ -189,22 +190,40 @@ export function useRemoteDir(): RemoteDir {
       setAllEntries([]);
 
       try {
-        const password = await getSshPassword(host.id);
-        const result = await invoke<SftpOpenResult>("sftp_open", {
-          opts: {
-            host: host.host,
-            port: host.port,
-            username: host.username,
-            authType: host.authType,
-            password,
-            keyPath: host.keyPath,
-            cols: 80,
-            rows: 24,
-            connectTimeout: host.connectTimeout,
-            keepAliveInterval: host.keepAliveInterval,
-            keepAliveMax: host.keepAliveMax,
-          },
-        });
+        // M3: when a live terminal session exists for this host, run SFTP
+        // over its transport instead of paying a second TCP handshake +
+        // auth. Falls through to a fresh connection if the session raced
+        // a close (shared transport dying later surfaces via reconnect).
+        let result: SftpOpenResult | null = null;
+        const sharedSshId = findLiveSshSessionForHost(host.id);
+        if (sharedSshId !== null) {
+          try {
+            result = await invoke<SftpOpenResult>("sftp_open_shared", {
+              sshId: sharedSshId,
+            });
+          } catch {
+            result = null;
+          }
+        }
+        if (result === null) {
+          const password = await getSshPassword(host.id);
+          result = await invoke<SftpOpenResult>("sftp_open", {
+            opts: {
+              host: host.host,
+              port: host.port,
+              username: host.username,
+              authType: host.authType,
+              password,
+              keyPath: host.keyPath,
+              cols: 80,
+              rows: 24,
+              connectTimeout: host.connectTimeout,
+              keepAliveInterval: host.keepAliveInterval,
+              keepAliveMax: host.keepAliveMax,
+              strictHostKeyChecking: host.strictHostKeyChecking ?? null,
+            },
+          });
+        }
 
         const normalizedHome = normalizePath(result.home);
          // Restore the path the user was browsing. SFTP paths are absolute, so

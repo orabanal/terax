@@ -8,7 +8,7 @@ import {
   CommandShortcut,
 } from "@/components/ui/command";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
+import { fileIconUrl, useIconsVersion } from "@/modules/explorer/lib/iconResolver";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   getBindingTokens,
@@ -46,6 +46,8 @@ export function CommandPalette({
   workspaceRoot,
   onOpenFile,
 }: Props) {
+  // Re-render when the deferred icon set arrives (generic → specific).
+  useIconsVersion();
   const [query, setQuery] = useState("");
   const [selectedValue, setSelectedValue] = useState("");
   const userShortcuts = usePreferencesStore((s) => s.shortcuts);

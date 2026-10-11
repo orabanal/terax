@@ -28,7 +28,7 @@ import { ExplorerSearch, type ExplorerSearchHandle } from "./ExplorerSearch";
 import { EntryRow, PendingRow, StatusRow } from "./TreeRow";
 import { InlineInput } from "./InlineInput";
 import { copyToClipboard, revealInFinder } from "./lib/contextActions";
-import { fileIconUrl, folderIconUrl } from "./lib/iconResolver";
+import { fileIconUrl, folderIconUrl, useIconsVersion } from "./lib/iconResolver";
 import { COMPACT_CONTENT, COMPACT_ITEM } from "./lib/menuItemClass";
 import { useFileTree } from "./lib/useFileTree";
 import { useGlobalShortcuts } from "@/modules/shortcuts";
@@ -159,6 +159,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(
     },
     ref,
   ) {
+    // Re-render when the deferred icon set arrives (generic → specific).
+    useIconsVersion();
     const tree = useFileTree(rootPath, { onPathRenamed, onPathDeleted });
     const [selectedPath, setSelectedPath] = useState<string | null>(null);
     const [isSearchOpen, setIsSearchOpen] = useState(false);

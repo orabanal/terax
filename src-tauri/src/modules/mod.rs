@@ -10,4 +10,5 @@ pub mod shell;
 pub mod sftp;
 pub mod ssh;
 pub mod transcript_watcher;
+pub mod window_opacity;
 pub mod workspace;

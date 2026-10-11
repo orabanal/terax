@@ -6,6 +6,12 @@ import type { SshHost } from "@/modules/ssh/store";
 import type { SearchAddon } from "@xterm/addon-search";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DormantRing } from "./dormantRing";
+import {
+  perfRecordBytes,
+  perfRecordWrite,
+  perfSample,
+  perfStartFramePump,
+} from "./perfHud";
 import type { BlockMode } from "../block/lib/modeMachine";
 import {
   createShellIntegrationState,
@@ -26,6 +32,7 @@ import {
   applyLetterSpacing,
   applyTheme as applyPoolTheme,
   applyScrollback,
+  applySmoothScroll,
   applyWebglPreference,
   clearLeaf,
   configureRendererPool,
@@ -60,6 +67,14 @@ type Session = {
   sshHost: (SshHost & { password?: string }) | undefined;
   lastCwd: string | null;
   pendingExit: number | null;
+  /** Incarnation counter: every fresh PTY open bumps it, so callbacks
+   *  captured by a dead incarnation (late onData/onExit after respawn or
+   *  close) are dropped instead of bleeding into the new session. */
+  gen: number;
+  /** Backend SSH session id. Survives `pty === null` windows (reconnect /
+   *  respawn) so polls and notifications keep routing to the logical
+   *  session instead of dropping events; null for local leaves. */
+  sshId: number | null;
   shellExited: boolean;
   /** SSH transport dropped (keepalive timeout / TCP failure), not a clean exit. */
   sshDisconnected: boolean;
@@ -73,6 +88,8 @@ type Session = {
   container: HTMLDivElement | null;
   snapshot: string | null;
   searchQuery: string | null;
+  /** Last `terax:ssh-activity` emit (performance.now), for throttling. */
+  lastActivityEmit: number;
   dormantRing: DormantRing;
   pendingInput: string;
   hasSlot: boolean;
@@ -111,27 +128,6 @@ function emitSshStatus(leafId: number, msg: string): void {
   sshStatusListeners.get(leafId)?.forEach((cb) => {
     cb(msg);
   });
-}
-
-// PTY data subscribers keyed by leafId. Used by SSH agent detection.
-const ptyDataSubscribers = new Map<number, Set<(bytes: Uint8Array) => void>>();
-
-export function subscribePtyData(
-  leafId: number,
-  cb: (bytes: Uint8Array) => void,
-): () => void {
-  let set = ptyDataSubscribers.get(leafId);
-  if (!set) {
-    set = new Set();
-    ptyDataSubscribers.set(leafId, set);
-  }
-  set.add(cb);
-  return () => {
-    const s = ptyDataSubscribers.get(leafId);
-    if (!s) return;
-    s.delete(cb);
-    if (s.size === 0) ptyDataSubscribers.delete(leafId);
-  };
 }
 
 export function getCwdForLeaf(leafId: number): string | null {
@@ -181,6 +177,20 @@ export function seedLeafSession(
 /** Returns true if the session for `leafId` already has an active PTY. */
 export function isSessionConnected(leafId: number): boolean {
   return !!sessions.get(leafId)?.pty;
+}
+
+/** Backend SSH id of a live interactive session for `hostId`, if any.
+ *  Lets SFTP multiplex on the existing transport (M3) instead of paying
+ *  a second TCP handshake + auth. Prefers connected leaves; skips dead or
+ *  disposing records. */
+export function findLiveSshSessionForHost(hostId: string): number | null {
+  for (const [, s] of sessions) {
+    if (s.disposed || s.shellExited || s.sshDisconnected) continue;
+    if (s.sshHost?.id !== hostId) continue;
+    const id = s.sshId ?? s.pty?.id ?? null;
+    if (id !== null) return id;
+  }
+  return null;
 }
 
 const SSH_EXIT_CONNECTION_LOST = -1;
@@ -235,7 +245,7 @@ export function writeToSession(leafId: number, data: string): boolean {
   const s = sessions.get(leafId);
   if (!s || s.shellExited) return false;
   if (s.pty) {
-    void s.pty.write(data);
+    s.pty.write(data).catch((e) => reportWriteFailure(leafId, e));
     return true;
   }
   s.pendingInput += data;
@@ -265,9 +275,45 @@ export function leafIdForPty(ptyId: number): number | null {
   return null;
 }
 
-/** Get the PTY/SSH session id for a terminal leaf. Returns null if not found or not SSH. */
+/** Get the SSH session id for a terminal leaf. Returns null when the leaf
+ *  is unknown or local. Uses the persistent record id (not the live PTY
+ *  handle) so lookups survive reconnect/respawn windows where `pty` is
+ *  briefly null; execs against a dead id fail fast backend-side and the
+ *  callers already retry. */
 export function ptyIdForLeaf(leafId: number): number | null {
-  return sessions.get(leafId)?.pty?.id ?? null;
+  const s = sessions.get(leafId);
+  if (!s?.sshHost) return null;
+  return s.sshId ?? s.pty?.id ?? null;
+}
+
+/** Write-side failure surface: ssh_write rejects when the session is gone
+ *  or backpressured (M5). Callers already treat false/theme as best-effort;
+ *  this makes the loss visible instead of a floating rejection. */
+function reportWriteFailure(leafId: number, e: unknown): void {
+  const message = e instanceof Error ? e.message : String(e);
+  console.warn(`[terax] write to leaf ${leafId} failed:`, message);
+  window.dispatchEvent(
+    new CustomEvent<{ leafId: number; message: string }>("terax:ssh-write-failed", {
+      detail: { leafId, message },
+    }),
+  );
+}
+
+export type TerminalOpenError = {
+  leafId: number;
+  message: string;
+};
+
+/** Surface PTY open failures to the pane (local opens fail silently
+ *  otherwise — a black terminal with no explanation). Listened by
+ *  TerminalPane, which offers a retry. */
+function emitTerminalOpenError(leafId: number, e: unknown): void {
+  const message = e instanceof Error ? e.message : String(e);
+  window.dispatchEvent(
+    new CustomEvent<TerminalOpenError>("terax:terminal-open-failed", {
+      detail: { leafId, message },
+    }),
+  );
 }
 
 configureRendererPool({
@@ -276,7 +322,7 @@ configureRendererPool({
     if (!s) return null;
     return {
       writeToPty: (data) => {
-        s.pty?.write(data);
+        s.pty?.write(data)?.catch((e) => reportWriteFailure(leafId, e));
       },
       resizePty: (cols, rows) => {
         s.cols = cols;
@@ -325,6 +371,8 @@ function ensureSession(
     sshHost,
     lastCwd: null,
     pendingExit: null,
+    gen: 0,
+    sshId: null,
     shellExited: false,
     sshDisconnected: false,
     callbacks: {},
@@ -337,6 +385,7 @@ function ensureSession(
     container: null,
     snapshot: null,
     searchQuery: null,
+    lastActivityEmit: 0,
     dormantRing: new DormantRing(),
     pendingInput: "",
     hasSlot: false,
@@ -357,15 +406,107 @@ function ensureSession(
   return session;
 }
 
-function deliverPtyBytes(leafId: number, bytes: Uint8Array): void {
+/**
+ * Output coalescing: SSH delivers data as TCP segments arrive (often a few
+ * hundred bytes), and each IPC chunk used to become its own `term.write()`
+ * — hundreds of parse/render schedulings per second while an agent streams,
+ * which is the scroll stutter vs native terminals. Now visible leaves
+ * accumulate chunks and flush once per animation frame as a single write;
+ * hidden leaves keep pushing straight into the dormant ring.
+ */
+type PendingFlush = {
+  chunks: Uint8Array[];
+  total: number;
+  raf: number | null;
+};
+
+const pendingWrites = new Map<number, PendingFlush>();
+
+/** Single write cap — bounds memory when rAF is paused (e.g. minimized
+ *  window) by flushing synchronously past this size, and bounds the worst
+ *  single `term.write()` on the UI thread: oversized writes mid-burst
+ *  freeze scrolling for hundreds of ms (worse with contrast recalc under
+ *  a background image). */
+const COALESCE_FLUSH_CAP = 64 * 1024;
+
+/** `terax:ssh-activity` is consumed for connect detection and debounced
+ *  refreshes/scans — none of it needs per-chunk granularity. */
+const SSH_ACTIVITY_THROTTLE_MS = 1000;
+
+function concatChunks(chunks: Uint8Array[]): Uint8Array {
+  if (chunks.length === 1) return chunks[0] ?? new Uint8Array(0);
+  let total = 0;
+  for (const c of chunks) total += c.byteLength;
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) {
+    out.set(c, off);
+    off += c.byteLength;
+  }
+  return out;
+}
+
+/** Write any queued bytes now (ordering preserved). Called on rAF, and
+ *  synchronously before unbind/serialize so no byte is lost from snapshots. */
+function flushPendingLeafBytes(leafId: number): void {
+  const p = pendingWrites.get(leafId);
+  if (!p) return;
+  if (p.raf !== null) {
+    cancelAnimationFrame(p.raf);
+    p.raf = null;
+  }
+  if (p.total === 0) {
+    pendingWrites.delete(leafId);
+    return;
+  }
+  const combined = concatChunks(p.chunks);
+  pendingWrites.delete(leafId);
   const s = sessions.get(leafId);
   if (!s) return;
   const slot = getSlotForLeaf(leafId);
-  if (slot) slot.term.write(bytes);
-  else s.dormantRing.push(bytes);
-  ptyDataSubscribers.get(leafId)?.forEach((cb) => cb(bytes));
+  if (slot) {
+    slot.term.write(combined);
+    perfRecordWrite();
+  } else {
+    s.dormantRing.push(combined);
+  }
+}
+
+/** Drop queued bytes (session teardown / respawn cleared the screen). */
+function cancelPendingLeafBytes(leafId: number): void {
+  const p = pendingWrites.get(leafId);
+  if (!p) return;
+  if (p.raf !== null) cancelAnimationFrame(p.raf);
+  pendingWrites.delete(leafId);
+}
+
+function deliverPtyBytes(leafId: number, bytes: Uint8Array): void {
+  const s = sessions.get(leafId);
+  if (!s) return;
+  perfRecordBytes(bytes.byteLength);
+  const slot = getSlotForLeaf(leafId);
+  if (!slot) {
+    s.dormantRing.push(bytes);
+  } else {
+    let p = pendingWrites.get(leafId);
+    if (!p) {
+      p = { chunks: [], total: 0, raf: null };
+      pendingWrites.set(leafId, p);
+    }
+    p.chunks.push(bytes);
+    p.total += bytes.byteLength;
+    if (p.total >= COALESCE_FLUSH_CAP) {
+      flushPendingLeafBytes(leafId);
+    } else if (p.raf === null) {
+      p.raf = requestAnimationFrame(() => flushPendingLeafBytes(leafId));
+    }
+  }
   if (s.sshHost) {
-    window.dispatchEvent(new CustomEvent("terax:ssh-activity", { detail: { leafId } }));
+    const now = performance.now();
+    if (now - s.lastActivityEmit >= SSH_ACTIVITY_THROTTLE_MS) {
+      s.lastActivityEmit = now;
+      window.dispatchEvent(new CustomEvent("terax:ssh-activity", { detail: { leafId } }));
+    }
   }
 }
 
@@ -377,57 +518,61 @@ async function openPtyForSession(
   const startCols = s.cols > 0 ? s.cols : 80;
   const startRows = s.rows > 0 ? s.rows : 24;
 
-  if (s.sshHost) {
-    const host = s.sshHost;
-    return openSshPty(startCols, startRows, host, host.password, {
-      onConnected: (sshId) => probeRemoteOs(host.id, sshId),
-      onData: (bytes) => deliverPtyBytes(leafId, bytes),
-      onExit: (code) => {
-        s.shellExited = true;
-        s.pty = null;
-        s.pendingInput = "";
-        const slot = getSlotForLeaf(leafId);
-        if (slot) slot.term.options.disableStdin = true;
-        if (code === SSH_EXIT_CONNECTION_LOST) {
-          // Transport died (keepalive timeout, TCP reset). Surface the
-          // reconnect modal regardless of whether it is currently mounted;
-          // do not treat this as a shell exit.
-          s.sshDisconnected = true;
-          emitSshStatus(leafId, "Disconnected");
-          // Emit event for reactive UI updates (replaces polling)
-          window.dispatchEvent(
-            new CustomEvent("terax:ssh-activity", { detail: { leafId } })
-          );
-          return;
-        }
-        if (s.callbacks.onExit) s.callbacks.onExit(code);
-        else s.pendingExit = code;
-      },
-      onStatus: (msg) => {
-        emitSshStatus(leafId, msg);
-        // Emit event on status changes for reactive updates
+  // New incarnation: callbacks captured below belong to THIS open only.
+  // Late events from a previous incarnation (close/respawn/dispose race)
+  // fail the check and are dropped instead of bleeding across sessions.
+  s.gen += 1;
+  const gen = s.gen;
+  const ifCurrent = (fn: () => void) => {
+    const cur = sessions.get(leafId);
+    if (cur === s && !cur.disposed && cur.gen === gen) fn();
+  };
+  const onData = (bytes: Uint8Array) =>
+    ifCurrent(() => deliverPtyBytes(leafId, bytes));
+  const onExit = (code: number) =>
+    ifCurrent(() => {
+      s.shellExited = true;
+      s.pty = null;
+      s.pendingInput = "";
+      const slot = getSlotForLeaf(leafId);
+      if (slot) slot.term.options.disableStdin = true;
+      if (code === SSH_EXIT_CONNECTION_LOST) {
+        // Transport died (keepalive timeout, TCP reset). Surface the
+        // reconnect modal regardless of whether it is currently mounted;
+        // do not treat this as a shell exit.
+        s.sshDisconnected = true;
+        emitSshStatus(leafId, "Disconnected");
+        // Emit event for reactive UI updates (replaces polling)
         window.dispatchEvent(
           new CustomEvent("terax:ssh-activity", { detail: { leafId } })
         );
-      },
+        return;
+      }
+      if (s.callbacks.onExit) s.callbacks.onExit(code);
+      else s.pendingExit = code;
+    });
+
+  if (s.sshHost) {
+    const host = s.sshHost;
+    return openSshPty(startCols, startRows, host, host.password, {
+      onConnected: (sshId) => ifCurrent(() => probeRemoteOs(host.id, sshId)),
+      onData,
+      onExit,
+      onStatus: (msg) =>
+        ifCurrent(() => {
+          emitSshStatus(leafId, msg);
+          // Emit event on status changes for reactive updates
+          window.dispatchEvent(
+            new CustomEvent("terax:ssh-activity", { detail: { leafId } })
+          );
+        }),
     }, cwd);
   }
 
   return openPty(
     startCols,
     startRows,
-    {
-      onData: (bytes) => deliverPtyBytes(leafId, bytes),
-      onExit: (code) => {
-        s.shellExited = true;
-        s.pty = null;
-        s.pendingInput = "";
-        const slot = getSlotForLeaf(leafId);
-        if (slot) slot.term.options.disableStdin = true;
-        if (s.callbacks.onExit) s.callbacks.onExit(code);
-        else s.pendingExit = code;
-      },
-    },
+    { onData, onExit },
     cwd,
     s.blocks,
     s.command,
@@ -515,6 +660,9 @@ function bindLeafToSlot(leafId: number, s: Session): void {
 
 function unbindLeafFromSlot(leafId: number, s: Session): void {
   if (!s.hasSlot) return;
+  // Write coalesced bytes into the terminal BEFORE serialize, otherwise
+  // they would be missing from both the snapshot and the dormant ring.
+  flushPendingLeafBytes(leafId);
   const out = releaseSlot(leafId);
   if (out) {
     s.snapshot = out.snapshot;
@@ -547,8 +695,11 @@ function attachSession(
           return;
         }
         s.pty = pty;
+        // M6: record the backend SSH id so polls/notifications route by
+        // logical session, not by live handle (survives pty-null windows).
+        if (s.sshHost) s.sshId = pty.id;
         if (s.pendingInput) {
-          void pty.write(s.pendingInput);
+          pty.write(s.pendingInput).catch((e) => reportWriteFailure(leafId, e));
           s.pendingInput = "";
         }
         if (s.cols > 0 && s.rows > 0) pty.resize(s.cols, s.rows);
@@ -556,6 +707,7 @@ function attachSession(
       .catch((e) => {
         s.ptyOpening = false;
         console.error("[terax] openPty failed:", e);
+        emitTerminalOpenError(leafId, e);
       });
   }
 }
@@ -589,6 +741,8 @@ export async function respawnSession(
     slot.term.clear();
     slot.term.reset();
   }
+  // The screen was wiped — queued bytes belong to the previous incarnation.
+  cancelPendingLeafBytes(leafId);
 
   s.ptyOpening = true;
   let pty: PtySession;
@@ -597,6 +751,7 @@ export async function respawnSession(
   } catch (e) {
     s.ptyOpening = false;
     console.error("[terax] respawn openPty failed:", e);
+    emitTerminalOpenError(leafId, e);
     return;
   }
   s.ptyOpening = false;
@@ -605,8 +760,9 @@ export async function respawnSession(
     return;
   }
   s.pty = pty;
+  if (s.sshHost) s.sshId = pty.id;
   if (s.pendingInput) {
-    void pty.write(s.pendingInput);
+    pty.write(s.pendingInput).catch((e) => reportWriteFailure(leafId, e));
     s.pendingInput = "";
   }
   if (s.cols > 0 && s.rows > 0) pty.resize(s.cols, s.rows);
@@ -627,6 +783,7 @@ export async function leafHasForegroundProcess(leafId: number): Promise<boolean>
 export function disposeSession(leafId: number): void {
   const s = sessions.get(leafId);
   if (!s) return;
+  cancelPendingLeafBytes(leafId);
   s.disposed = true;
   disposeLeafSlot(leafId);
   s.hasSlot = false;
@@ -729,6 +886,11 @@ export function useTerminalSession({
     applyScrollback(scrollback);
   }, [scrollback]);
 
+  const smoothScroll = usePreferencesStore((p) => p.terminalSmoothScroll);
+  useEffect(() => {
+    applySmoothScroll(smoothScroll);
+  }, [smoothScroll]);
+
   const webglPref = usePreferencesStore((p) => p.terminalWebglEnabled);
   useEffect(() => {
     applyWebglPreference(webglPref);
@@ -812,13 +974,19 @@ export function useTerminalSession({
 
   const submitCommand = useCallback(
     (text: string) => {
-      sessions.get(leafId)?.pty?.write(`${text}\r`);
+      sessions
+        .get(leafId)
+        ?.pty?.write(`${text}\r`)
+        ?.catch((e) => reportWriteFailure(leafId, e));
     },
     [leafId],
   );
 
   const interrupt = useCallback(() => {
-    sessions.get(leafId)?.pty?.write("\x03");
+    sessions
+      .get(leafId)
+      ?.pty?.write("\x03")
+      ?.catch((e) => reportWriteFailure(leafId, e));
   }, [leafId]);
 
   const selectBlockAt = useCallback(
@@ -895,4 +1063,8 @@ export function terminalDebugStats() {
 if (import.meta.env?.DEV && typeof window !== "undefined") {
   (window as unknown as { __teraxTerm?: unknown }).__teraxTerm =
     terminalDebugStats;
+  (window as unknown as { __teraxPerf?: unknown }).__teraxPerf = {
+    sample: perfSample,
+  };
+  perfStartFramePump();
 }

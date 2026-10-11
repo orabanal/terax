@@ -77,7 +77,12 @@ export type SftpPaneTarget =
   | { side: "remote"; hostId: string; hostName: string };
 
 /** Pixel widths for the resizable fixed columns in the SFTP list view. */
-export type ColWidths = { size: number; mtime: number; permissions: number };
+export type ColWidths = {
+  size: number;
+  mtime: number;
+  permissions: number;
+  type: number;
+};
 
 /** Layout mode for a pane: row-based list, icon grid, or expandable tree. */
 export type SftpViewMode = "list" | "icons" | "tree";

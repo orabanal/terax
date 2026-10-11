@@ -10,6 +10,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import ReactDOM from "react-dom/client";
 import App from "./app/App";
 import { initLaunchDir } from "./lib/launchDir";
+import { initIconSet } from "./modules/explorer/lib/iconResolver";
 import { USE_CUSTOM_WINDOW_CONTROLS } from "./lib/platform";
 
 if (USE_CUSTOM_WINDOW_CONTROLS) {
@@ -32,6 +33,10 @@ await initLaunchDir();
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <App />,
 );
+
+// File icon bodies (3.7MB) load off the critical path: first paint uses
+// inline generic icons and rows pop to specific ones on arrival.
+void initIconSet();
 
 // Window starts hidden (per tauri.conf.json) so users never see a transparent
 // shadow-only frame before React paints. Use setTimeout — rAF is throttled
